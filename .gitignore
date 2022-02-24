@@ -1,3 +1,9 @@
+# Data files which are too big whomp whomp
+data/nyc/energy/*
+data/nyc/footprints/*
+data/nyc/weather/*
+data/nyc/photos/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

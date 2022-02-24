@@ -1,0 +1,17 @@
+# nyc footprints ~ 430MB
+# https://data.cityofnewyork.us/Housing-Development/Building-Footprints/nqwf-w8eh
+
+# nyc CityGML ~ 1GB 
+# interesting visualization - https://demos.cesium.com/NewYork/?view=-74.0154858088327%2C40.69440889287025%2C1403.8707929318286%2C21.2787951719992%2C-21.343881781728584%2C0.07170511300973316
+# https://data.cityofnewyork.us/City-Government/3-D-Building-Model/tnru-abg2
+
+# energy consumption data (monthly)
+# 2020 - https://data.cityofnewyork.us/Environment/Local-Law-84-2021-Monthly-Data-for-Calendar-Year-2/in83-58q5
+# 2019 - https://data.cityofnewyork.us/Environment/Local-Law-84-2020-Monthly-Data-for-Calendar-Year-2/evu4-6zyr
+# 2018 - https://data.cityofnewyork.us/Environment/Local-Law-84-2019-Monthly-Data-for-Calendar-Year-2/njuk-taxk
+
+# energy consumption data (annually). We need this to filter for individual buildings and link the BIN number
+# 2020 - https://data.cityofnewyork.us/Environment/Energy-and-Water-Data-Disclosure-for-Local-Law-84-/usc3-8zwd
+
+# weather - noaa daily summaries
+# https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/locations/CITY:US360019/detail
