@@ -36,10 +36,10 @@ end
 
 # ╔═╡ a64353ce-b2ed-4af1-84aa-5c9b16578a97
 plot(
-	unique(footprints.geom), 
-	color="black", 
+	unique(footprints.geom[1:500]), 
+	color="white",
 	alpha=1, 
-	markersize=1
+	markersize=1.5
 )
 
 # ╔═╡ f890bbfd-1ae4-4906-b123-5aa135ce14e2
@@ -1397,7 +1397,7 @@ version = "0.9.1+5"
 # ╔═╡ Cell order:
 # ╟─e17da3e0-93a4-11ec-0efe-9b67f6e2e8f9
 # ╟─a02016d7-a1ac-4718-b2c0-4f1565317795
-# ╠═a64353ce-b2ed-4af1-84aa-5c9b16578a97
+# ╟─a64353ce-b2ed-4af1-84aa-5c9b16578a97
 # ╟─f890bbfd-1ae4-4906-b123-5aa135ce14e2
 # ╟─7687464e-78bb-4a1f-90ec-b2efa657b584
 # ╟─ccc97231-abb0-4eea-a580-48151d9e2832
@@ -1424,7 +1424,7 @@ version = "0.9.1+5"
 # ╟─473c5156-db58-4289-85d5-34bde2fcc42f
 # ╟─f0fbd0ab-4350-40c3-96c5-fc034b850f1b
 # ╟─83897835-10b7-440b-ade7-d2e32b0fd511
-# ╠═a228f702-28c2-49f4-b410-a2283488fefa
-# ╠═7220236d-c865-4c71-8b8b-a38c7b9c63c1
+# ╟─a228f702-28c2-49f4-b410-a2283488fefa
+# ╟─7220236d-c865-4c71-8b8b-a38c7b9c63c1
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
