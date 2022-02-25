@@ -15,3 +15,6 @@
 
 # weather - noaa daily summaries
 # https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/locations/CITY:US360019/detail
+
+# weather - central park, which I'm using to discover acronym meanings
+# https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/locations/ZIP:10023/detail
