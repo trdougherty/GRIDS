@@ -8,6 +8,7 @@ using InteractiveUtils
 begin
 	using DataFrames
 	using CSV
+	using JSON
 	using GeoDataFrames
 	using Plots
 	using PlutoUI
@@ -243,12 +244,20 @@ CSV.write("./data/nyc/energy_train.csv", train)
 # ╔═╡ 7220236d-c865-4c71-8b8b-a38c7b9c63c1
 CSV.write("./data/nyc/energy_test.csv", test)
 
+# ╔═╡ 9ca658bd-36eb-4c3b-aa6c-454f9762e2ec
+nyc_geomonthly_2020[!,:month] = convert.(String, nyc_geomonthly_2020[:,:month])
+
+# ╔═╡ 2469aa42-16c7-407a-89ea-4d7813decf53
+# or I can write the full dataset which is nice too
+GeoDataFrames.write("./data/nyc/energy.geojson", nyc_geomonthly_2020)
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 GeoDataFrames = "62cb38b5-d8d2-4862-a48e-6a340996859f"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -257,6 +266,7 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 CSV = "~0.10.2"
 DataFrames = "~1.3.2"
 GeoDataFrames = "~0.2.0"
+JSON = "~0.21.3"
 Missings = "~0.4.5"
 Plots = "~1.25.11"
 PlutoUI = "~0.7.1"
@@ -268,7 +278,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-DEV.53"
 manifest_format = "2.0"
-project_hash = "4b42fc05f4053f21a26bbbc1d248217c712fed68"
+project_hash = "a2067179cfde3a9dbf2b771fa47483f1ff53e86b"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -674,6 +684,12 @@ git-tree-sha1 = "f6250b16881adf048549549fba48b1161acdac8c"
 uuid = "c1c5ebd0-6772-5130-a774-d5fcae4a789d"
 version = "3.100.1+0"
 
+[[deps.LERC_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "bf36f528eec6634efc60d7ec062008f171071434"
+uuid = "88015f11-f218-50d7-93a8-a6af411a945d"
+version = "3.0.0+1"
+
 [[deps.LZO_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "e5b909bcf985c5e2605737d2ce278ed791b89be6"
@@ -750,10 +766,10 @@ uuid = "4b2f31a3-9ecc-558c-b454-b3730dcb73e9"
 version = "2.35.0+0"
 
 [[deps.Libtiff_jll]]
-deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Pkg", "Zlib_jll", "Zstd_jll"]
-git-tree-sha1 = "340e257aada13f95f98ee352d316c3bed37c8ab9"
+deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "LERC_jll", "Libdl", "Pkg", "Zlib_jll", "Zstd_jll"]
+git-tree-sha1 = "c9551dd26e31ab17b86cbd00c2ede019c08758eb"
 uuid = "89763e89-9b03-5906-acba-b20f662cd828"
-version = "4.3.0+0"
+version = "4.3.0+1"
 
 [[deps.Libuuid_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1395,12 +1411,12 @@ version = "0.9.1+5"
 """
 
 # ╔═╡ Cell order:
-# ╟─e17da3e0-93a4-11ec-0efe-9b67f6e2e8f9
-# ╟─a02016d7-a1ac-4718-b2c0-4f1565317795
-# ╟─a64353ce-b2ed-4af1-84aa-5c9b16578a97
+# ╠═e17da3e0-93a4-11ec-0efe-9b67f6e2e8f9
+# ╠═a02016d7-a1ac-4718-b2c0-4f1565317795
+# ╠═a64353ce-b2ed-4af1-84aa-5c9b16578a97
 # ╟─f890bbfd-1ae4-4906-b123-5aa135ce14e2
 # ╟─7687464e-78bb-4a1f-90ec-b2efa657b584
-# ╟─ccc97231-abb0-4eea-a580-48151d9e2832
+# ╠═ccc97231-abb0-4eea-a580-48151d9e2832
 # ╟─ccb524ae-c405-4602-a7bc-ad82e2a66704
 # ╟─bc458e33-9ab5-470d-b534-afa7cb398513
 # ╟─d85fd7ee-9678-4c64-a2ab-bec8acec4f67
@@ -1420,11 +1436,13 @@ version = "0.9.1+5"
 # ╟─eb61c448-9177-423b-a8ad-42b3559d5161
 # ╟─b0641c78-78cb-4a78-a999-7fd6fa3a9a61
 # ╟─bfc70a91-524f-4d1b-9b17-0963c421507c
-# ╟─c2b516e5-297e-4a04-b225-f814cd1ebb01
+# ╠═c2b516e5-297e-4a04-b225-f814cd1ebb01
 # ╟─473c5156-db58-4289-85d5-34bde2fcc42f
-# ╟─f0fbd0ab-4350-40c3-96c5-fc034b850f1b
+# ╠═f0fbd0ab-4350-40c3-96c5-fc034b850f1b
 # ╟─83897835-10b7-440b-ade7-d2e32b0fd511
-# ╟─a228f702-28c2-49f4-b410-a2283488fefa
-# ╟─7220236d-c865-4c71-8b8b-a38c7b9c63c1
+# ╠═a228f702-28c2-49f4-b410-a2283488fefa
+# ╠═7220236d-c865-4c71-8b8b-a38c7b9c63c1
+# ╟─9ca658bd-36eb-4c3b-aa6c-454f9762e2ec
+# ╠═2469aa42-16c7-407a-89ea-4d7813decf53
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
