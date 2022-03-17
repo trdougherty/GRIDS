@@ -4,86 +4,555 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ c76ebd05-a275-4a94-8d2a-dce85fc8791d
+# ╔═╡ 49d1ea64-9535-11ec-2eab-119fadb9083e
 begin
-	using GMT
-	using LazySets
-	using CSV
 	using DataFrames
 	using GeoDataFrames
-	using Chain
+	using CSV
 	using Plots
-	using ArchGDAL
-	using GeometricalPredicates
-	using Shapefile
-	using JSON
 	using Gadfly
-end
-
-# ╔═╡ 494ad537-a770-490f-9fe9-5ec38a440d30
-md"""
-## Streetview and Satellite Region
-"""
-
-# ╔═╡ f9e244fa-47d5-43f4-b546-2aa6c0245d1f
-md"""
-So we have monthly energy consumption for thousands of buildings in New York City, and we want to now capture high resolution satellite imagery for each of these buildings. We have streetview imagery for a large region of the city as well, it would be nice to put that in perspective
-	"""
-
-# ╔═╡ 73fe5891-da9d-4da3-8192-e9bc26bf434e
-
-
-# ╔═╡ 3039bf02-ba0b-4042-a777-73b2d9d8b666
-md"""
-##### Here's the metadata we have for each of the panoramic street level images taken by Google
-"""
-
-# ╔═╡ 273eed50-08b7-42ef-a569-4e9a94966a06
-begin
-color_scheme = palette(Symbol("PuOr_9"));
-original_streetview_set = CSV.read("/Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/photos/streetview/manhattan_metadata_nodes.tsv", DataFrame);
+	using Statistics
+	using Chain
+	using ArchGDAL
+	using VoronoiCells
+	using GeometryBasics
+	using Dates
+	using StatsBase
+	using PlutoUI
+	using GeoFormatTypes
+	using GeoJSON
+	using GeoStats
+	using Missings
+	using LazySets
+	using ColorSchemes: flag
 	
-streetview = @chain original_streetview_set begin
-dropmissing(["pano_id", "coords.lat", "coords.lng"])
-end
-
-streetview_points = [ 
-	ArchGDAL.createpoint(
-		streetview[i, "coords.lng"],
-		streetview[i, "coords.lat"]
-	) for i in 1:nrow(streetview)
-];
-	
-first(streetview, 3)
-end
-
-# ╔═╡ f6003c3c-3a8e-4862-add6-dd349e5e8906
-begin
-	council_footprints = GeoDataFrames.read("./data/nyc/footprints/council_districts.geojson")
-	council_footprints.coun_dist = parse.(Int64, council_footprints.coun_dist)
-	council_footprints.shape_area = parse.(Float64, council_footprints.shape_area)
-	council_footprints.shape_leng = parse.(Float64, council_footprints.shape_leng)
-	manhattan_councils = council_footprints[council_footprints.coun_dist .< 11, :]
-	first(manhattan_councils, 3)
+	color_scheme = cgrad(:matter, 9, categorical = true)
 end;
 
-# ╔═╡ 9c4a40f6-436b-4ca4-ba31-383fa7af4340
+# ╔═╡ 800a75e5-4f56-49e9-8d77-d62cce02ebad
+md"""
+# Data Prep for Dense Building Representations (DBRs)
+"""
+
+# ╔═╡ 8bb0c644-ce7b-49d8-8107-fd473f281199
+md"""
+This file runs the general trajectory for processing historical weather data from NOAA to combine with historical energy consummption data on the monthly scale. As it stands, almost all of the functionality is compressed into this single notebook. Fantastic next steps would be:
+1. Functionalize a lot of the behavior into separate files
+2. Utilize Julia's multiple dispatch to provide multiple training scenarios, like annual consumption
+3. Fix the monthly cleaning a bit so some months of regions aren't dropped
+4. Add command like argument parsing to handle new data sources with similar formats
+5. Drop the graphing dependencies for council footprints (it's custom for New York) potentially again using multiple dispatch
+"""
+
+# ╔═╡ 8ef3ef24-6ab4-4e55-a6bc-6ee4ac901a53
+md"""
+## 1. Weather Data Loading
+"""
+
+# ╔═╡ 4d822b90-5b31-4bb3-954b-71675e6c1dd9
 begin
-manhattan_plot = Plots.plot(manhattan_councils.geom, color="transparent", dpi=500)
-n_points = 800
-streetview_coverage = Plots.plot!(manhattan_plot, streetview_points[1:n_points], markersize=3, color=color_scheme[6], alpha=0.6)
+	weather = CSV.File("./data/nyc/weather/request_results.csv") |> DataFrame
+	unique_stations = DataFrames.combine(DataFrames.groupby(weather, :STATION), first)
+	locations = ArchGDAL.createpoint.(unique_stations.LONGITUDE,unique_stations.LATITUDE)
+	locations_tuple = [zip(unique_stations.LONGITUDE, unique_stations.LATITUDE)...];
+
+	council_footprints = GeoDataFrames.read("./data/nyc/footprints/council_districts.geojson")
+	council_footprints.coun_dist = Base.parse.(Int64, council_footprints.coun_dist)
+	council_footprints.shape_area = Base.parse.(Float64, council_footprints.shape_area)
+	council_footprints.shape_leng = Base.parse.(Float64, council_footprints.shape_leng)
+	council = council_footprints
+end;
+
+# ╔═╡ ce7bf29b-0cd3-4e8b-95ad-a804fd0e6537
+weather
+
+# ╔═╡ bf92bd9a-eb71-468e-b7c2-1b5980dd0a5c
+md"""
+A general idea of how the weather stations from NOAA are scattered around New York City"""
+
+# ╔═╡ 08d4a328-141c-4869-88c7-09ea8ff57590
+begin
+council_plot = Plots.plot(
+	council.geom, 
+	color="transparent", 
+	dpi=400,
+)
+council_points_plot = Plots.plot(
+	council_plot, 
+	locations, 
+	color=color_scheme[2], 
+	alpha=0.5,
+	xlims=(-74.5,-73.25),
+	ylims=(40.18, 41.2)
+)
 end
 
-# ╔═╡ 5849bace-91d7-4da6-b283-813a9c09ea4e
+# ╔═╡ 464a6802-c5eb-4a42-b9f4-d0dde12e24e8
+
+
+# ╔═╡ 5157cf2e-5b1c-447c-9d59-9064ecf9a771
+md"""
+## 2. Weather Data Preprocessing
+"""
+
+# ╔═╡ 31f66cb8-afa3-4ebc-9d7d-7d220997ba1f
+md"""
+Next want to build a bounding box around new york to group the different regions into "weather zones"
+"""
+
+# ╔═╡ 8594d3ad-0e04-49d3-86e1-cdc0c8f8951c
+begin
+	points_poly = ArchGDAL.createpolygon([zip(unique_stations.LATITUDE, unique_stations.LONGITUDE)...])
+	# below I'm adding a small buffer layer around, 0.02 was arbitrary and may suffer from compression errors in high latitude regions - something to think about
+	points_box = ArchGDAL.buffer(ArchGDAL.boundingbox(points_poly), 0.02)
+	Plots.plot(council_points_plot, points_box, color=color_scheme[1], alpha=0.15)
+end
+
+# ╔═╡ 0d9ba991-3d5a-4a15-84fd-a9641323e0d6
+begin
+	geom_locations = GeometryBasics.Point2.(locations_tuple)
+	lat_min, lat_max = extrema(unique_stations.LATITUDE)
+	lon_min, lon_max = extrema(unique_stations.LONGITUDE)
+	geom_rect = Rectangle(
+		GeometryBasics.Point2(lon_min, lat_min),
+		GeometryBasics.Point2(lon_max, lat_max)
+	)
+end;
+
+# ╔═╡ 9d4de2c5-c0d2-468d-b694-c678c6961857
+md"""
+Breaking the region into zones reveals how the weather data might interact with New York City
+"""
+
+# ╔═╡ 20886cf8-b48d-4293-b756-a894279d11f8
+begin
+	tess = voronoicells(geom_locations, geom_rect)
+	Plots.plot(council_points_plot, tess, color=color_scheme[end-3], dpi=400)
+end
+
+# ╔═╡ e9df25ae-f0e5-4634-8b44-f40576c7fc87
+md"""
+So if we don't run any compression, these are the likely weather groups. But not all of the stations have good monthly data, so we need to figure out which ones are reporting well, use average numbers, and break this into larger higher-quality groups
+"""
+
+# ╔═╡ a0b152a2-6189-459a-9288-514c8b3d14f5
+begin
+	weather[!, "date"] = Date.(Month.(weather.DATE), Year.(weather.DATE));
+	weather_description = describe(weather, :nmissing)
+	weather_description_variables = weather_description.variable
+	weather_description_nmissing = weather_description.nmissing
+	DataFrame(vars=weather_description_variables, percent_missing=weather_description_nmissing / nrow(weather))
+end
+
+# ╔═╡ e38363af-1059-4c7e-bc2b-94924f34b01b
+md"""
+The amount of missing data accross the board is pretty horrendous, so I'm going to just take a smattering of the best data we have and use that as average values across the board. It lools like temperature and precipitation are kind of reliable
+"""
+
+# ╔═╡ 9d65dabb-d4d2-49c1-96f2-1f5a02bdbecf
+md"""
+#### Narrowed by regularly reliable reporting
+"""
+
+# ╔═╡ 4608787a-e817-4ae4-bfd7-018445586632
+begin
+	# maybe going to try and keep these relatively constant... to avoid variable length systems. Something to think about!
+	reliable_terms = [
+		:date, 
+		:STATION,
+		:TMAX,
+		:TMIN,
+		:PRCP,
+		:LATITUDE,
+		:LONGITUDE,
+		:ELEVATION
+	]
+	weather_reliable = @chain weather begin
+		# dropmissing(reliable_terms)
+		select(reliable_terms)
+	end
+	weather_select_stations = @chain weather_reliable begin
+		# select(Not([:simple_date]))
+		DataFrames.groupby([:date, :STATION])
+		DataFrames.combine(_, valuecols(_) .=> mean, renamecols=false)
+		dropmissing
+	end
+end
+
+# ╔═╡ 8dc094fc-f1be-4640-b97e-94ed3e87e6a6
+md"""
+So this is essentially how we narrow the pool into weather stations which seem reliable enough. If they can report good data throughout the year then they make the cut
+"""
+
+# ╔═╡ f05d157c-f2a8-421f-af61-64461b82d863
+begin
+	unique_stations_select = DataFrames.combine(DataFrames.groupby(weather_select_stations, :STATION), first)
+	locations_select = ArchGDAL.createpoint.(unique_stations_select.LONGITUDE,unique_stations_select.LATITUDE)
+end;
+
+# ╔═╡ 58e457b8-ade1-43d2-8717-ea750e84a3a1
+md"""
+The difference between all of the available stations and the stations with good accuracy in reporting
+"""
+
+# ╔═╡ 143beaa8-65cb-48fd-a981-92e1543c123b
+begin
+Plots.plot(council_plot, locations, color=color_scheme[2], alpha=0.3, markersize=3)
+Plots.plot!(locations_select, color=color_scheme[end-2], alpha=0.5)
+end
+
+# ╔═╡ 6eb80555-636d-4072-b8a2-984a09f7f833
+md"""
+now to break the region again into weather regions
+"""
+
+# ╔═╡ bbcc4aec-45ba-46dd-843e-65fa609928f3
+begin
+	locations_select_tuple = [zip(unique_stations_select.LONGITUDE, unique_stations_select.LATITUDE)...]
+	geom_locations_select = GeometryBasics.Point2.(locations_select_tuple)
+	tess_select = voronoicells(geom_locations_select, geom_rect)
+end;
+
+# ╔═╡ 9de45182-910c-4451-824a-0c08568c5fd0
+begin
+# Plots.plot(council.geom, color="transparent", dpi=400)
+# Plots.plot!(locations, color=color_scheme[2], alpha=0.3, markersize=3)
+Plots.plot(council_points_plot, tess_select, color=color_scheme[end-3], alpha=0.9, markersize=3)
+Plots.plot!(locations_select, color=color_scheme[end-2], alpha=0.5)
+end
+
+# ╔═╡ 25a32915-7c5e-4e7b-bb94-d1571120dbaa
+
+
+# ╔═╡ a96bb753-6b33-4bba-9591-aaf007432c0a
+md"""
+##### Here we have the _cells_ which define the weather zones
+"""
+
+# ╔═╡ b485d1e4-c249-47ad-8e45-707756675fdb
+begin
+	regional_polygons::Vector{Vector{Tuple{Float64, Float64}}} = []
+	for cell in tess_select.Cells
+		cell_coords::Vector{Tuple{Float64, Float64}} = []
+		for el in cell
+			data_tuple::Tuple{Float64, Float64} = el.data
+			push!(cell_coords, data_tuple)
+		end
+		push!(cell_coords, cell[1].data)
+		push!(regional_polygons, cell_coords)
+	end
+	regional_polygon_geom = ArchGDAL.createpolygon.(regional_polygons)
+	unique_stations_select[!,"geom"] = regional_polygon_geom
+end;
+
+# ╔═╡ e013cb41-819d-4b8a-8381-0784167b401a
+md"""
+now this needs to link up with the locations of the weather stations so we're looking at the right things. So going to check for each weather station which region it's in. As a bit of a sanity check after that nonsense, now I'm going to make sure each of the weather stations fall within the geometry of the region.
+"""
+
+# ╔═╡ ffaa5a0d-d4eb-42a6-b817-f3571300257c
+begin
+	found_in = []
+	for (index, location) in enumerate(locations_select)
+		found_bool = GeoDataFrames.contains(unique_stations_select.geom[index], location)
+		push!(found_in, found_bool)
+	end
+	found_in
+end
+
+# ╔═╡ 6b123eec-f8e0-46df-86d1-06c7b4c3cc89
+md"""
+The result: a dataframe with cleaned monthly average weather for each of the most reliable zones in New York City, as well as the region of coverage for the entire city.
+"""
+
+# ╔═╡ 90638da7-7b62-43ec-89d9-770acf945c71
+begin
+service_areas = select(unique_stations_select, [:STATION, :geom])
+geoweather = leftjoin(
+	weather_select_stations, 
+	service_areas, 
+	on="STATION", 
+	matchmissing=:notequal
+)
+end
+
+# ╔═╡ bfef8e4e-0335-4a32-b23b-801a79e0c269
+
+
+# ╔═╡ d117da6c-bd22-45ed-aff2-baff497858a0
+md"""
+## 2. Building Locations (Footprints) Data
+"""
+
+# ╔═╡ e9627745-e40d-41e4-b569-4ed79f5686c4
+md"""
+Now that the weather cleaning is more or less finished, time to move to the building data.
+1. Building Footprints Data
+2. Load Energy Data
+3. Combine Energy and Footprints
+"""
+
+# ╔═╡ ee5a17b7-d9d0-410f-8196-9a3d9d2010d1
+n_sample = 500
+
+# ╔═╡ b49eb729-7d16-4165-8c80-e901cbbf3b01
+md"""
+##### Building Footprints
+"""
+
+# ╔═╡ e36d5b6c-9a95-4570-9b4a-d3bf4f48137f
+begin
+	footprints = GeoDataFrames.read("./data/nyc/footprints/building_footprints.geojson")
+	rename!(footprints, "base_bbl" => "bbl")
+	filter!(x -> tryparse(Float64, x.heightroof) !== nothing, footprints)
+	filter!(x -> tryparse(Float64, x.groundelev) !== nothing, footprints)
+	footprints[!,:heightroof] = Base.parse.(Float64, footprints.heightroof)
+	footprints[!,:groundelev] = Base.parse.(Float64, footprints.groundelev)
+	select!(footprints,
+	[
+		:geom,
+		:bbl,
+		:heightroof,
+		:cnstrct_yr,
+		:groundelev,
+		:bin
+	])
+	dropmissing!(footprints, [:bbl,:bin])
+end
+
+# ╔═╡ 97efb80c-0915-42df-8199-6df2639d2d41
+Plots.plot(
+	council_plot,
+	unique(footprints.geom[1:n_sample]), 
+	color=color_scheme[4],
+	alpha=0.6, 
+	markersize=2.5,
+	dpi=400
+)
+
+# ╔═╡ 223a20c9-6a8e-4014-a909-1e4e8525d282
+
+
+# ╔═╡ da770866-0a26-4722-98a8-cf7965e35d15
+md"""
+## 3. Energy Data
+"""
+
+# ╔═╡ ebd20a55-ae35-463f-ad81-fb5dc35c8b41
+md"""
+##### Monthly Energy Data - LL84
+"""
+
+# ╔═╡ a5be3813-81c3-4a08-85ad-cb43f317bf60
+begin
+	monthly_file = CSV.File("./data/nyc/energy/monthly/Local_Law_84_2021__Monthly_Data_for_Calendar_Year_2020_.csv", missingstring="Not Available")
+	nyc_monthly_energy_2020 = DataFrame(monthly_file)
+	filter!(x -> x["Parent Property Name"] == "Not Applicable: Standalone Property", 	nyc_monthly_energy_2020)
+	dropmissing!(nyc_monthly_energy_2020)
+	select!(nyc_monthly_energy_2020,
+	[
+		"Property Id",
+		"Month",
+		"Electricity Use  (kBtu)",
+		"Natural Gas Use  (kBtu)"
+	])
+	rename!(nyc_monthly_energy_2020, "Electricity Use  (kBtu)" => 	"electricity_kbtu")
+	rename!(nyc_monthly_energy_2020, "Natural Gas Use  (kBtu)" => "gas_kbtu")
+	rename!(nyc_monthly_energy_2020, "Month" => "month")
+end
+
+# ╔═╡ 13046794-2b45-43f2-a4dd-484173181109
+md"""
+##### Combine Monthly Energy Data and Footprints
+"""
+
+# ╔═╡ 3a6fc1ba-95fa-446c-97be-36346ff562a6
+md"""
+The annualized energy consumption has information for the **BBL**, **BIN**, and **PropertyID** of each building, which we can use to link between the energy data and the footprints. Below, I'm loading the full energy consumption and just keeping the linking information
+"""
+
+# ╔═╡ 9f8807ca-0ec6-43f2-83b5-8a76f8feebd5
+begin
+	annual_file = CSV.File("./data/nyc/energy/annually/Energy_and_Water_Data_Disclosure_for_Local_Law_84_2021__Data_for_Calendar_Year_2020_.csv", missingstring="Not Available")
+	nyc_annual_energy_2020 = DataFrame(annual_file)
+	# Only use single buildings
+	filter!(x -> x["Number of Buildings"] < 2, nyc_annual_energy_2020)
+	# Only use entries where the property Id is unique to each building
+	unique!(nyc_annual_energy_2020, "Property Id")
+	rename!(nyc_annual_energy_2020, "NYC Borough, Block and Lot (BBL)" => "bbl")
+	rename!(nyc_annual_energy_2020, "NYC Building Identification Number (BIN)" => "bin")
+	select!(nyc_annual_energy_2020, 
+	[
+		"Property Id",
+		"bbl",
+		"bin"
+	])
+	first(nyc_annual_energy_2020, 5)
+end
+
+# ╔═╡ a28efb16-2f08-4c69-9851-153ba4c6bf1a
+md"""
+Now to link the monthly energy consumption data with the footprints using the annual energy as a intermediate
+"""
+
+# ╔═╡ ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
+begin
+	nyc_monthly_energy_2020_joined = leftjoin(nyc_monthly_energy_2020,
+		nyc_annual_energy_2020, on="Property Id", makeunique=true)
+	dropmissing!(nyc_monthly_energy_2020_joined, [:bbl,:bin])
+	nyc_geomonthly_2020 = leftjoin(nyc_monthly_energy_2020_joined,
+		footprints, on="bbl", makeunique=true)
+	dropmissing!(nyc_geomonthly_2020, [:geom])
+	select(nyc_geomonthly_2020, :geom, :)
+end
+
+# ╔═╡ cc6f26f6-3db6-41b4-9e71-b6d48592c410
+md"""
+##### The buildings which are reporting monthly statistics
+"""
+
+# ╔═╡ 6b205e8b-f212-4668-a31e-c5af409c6e93
+Plots.plot(
+	council_plot,
+	unique(nyc_geomonthly_2020.geom)[1:n_sample],
+	color=color_scheme[end-2],
+	alpha=0.6,
+	dpi=500,
+	markersize=2.5,
+	xlims=(-74.3,-73.6),
+	ylims=(40.47, 40.92)
+)
+
+# ╔═╡ caec5908-a4c6-4bc0-8af3-6e098892e24b
+md"""
+Finally, cleaning up the weather data a bit so that we have daily average statistics for each month. Energy data:
+"""
+
+# ╔═╡ c3d1cadb-c3d3-4452-aa8a-1f50cdee1448
+begin
+	month_lookup = Dict{String, Integer}(
+		"Jan" => 1,
+		"Feb" => 2,
+		"Mar" => 3,
+		"Apr" => 4,
+		"May" => 5,
+		"Jun" => 6,
+		"Jul" => 7,
+		"Aug" => 8,
+		"Sep" => 9,
+		"Oct" => 10,
+		"Nov" => 11,
+		"Dec" => 12
+	);
+	energy = @chain nyc_geomonthly_2020 begin
+		subset!(:cnstrct_yr => ByRow(!=("")))
+		transform!(:cnstrct_yr => (x -> Base.parse.(Int64, x)) => :cnstrct_yr)
+		rename!(:month => :date_string)
+		select!(Not(:bin_1))
+		transform!(:date_string => (x -> split.(x,"-")) => [:month,:year])
+		transform!(:year => ByRow(x->*("20",x)) => :year)
+		transform!(:year => (x -> Base.parse.(Int64, x)) => :year)
+		transform!(:month => ByRow(x->month_lookup[x]) => :month)
+		transform!([:month, :year] => ByRow((x,y)->Date(Dates.Month.(x),Dates.Year.(y))) => :date)
+		transform!(:date => ByRow(Dates.daysinmonth) => :month_days)
+		transform!([:electricity_kbtu,:month_days] => ByRow((x,y)->x/y) => :daily_electric)
+		transform!([:gas_kbtu,:month_days] => ByRow((x,y)->x/y) => :daily_gas)
+		select!([:daily_electric,:daily_gas,:date],:)
+		rename!("Property Id" => :id)
+	end
+end
+
+# ╔═╡ dc647053-fdef-49c1-98e7-6292b9ac55c7
+md"""
+We can also view some of the summary statistics about the monthly energy data
+"""
+
+# ╔═╡ 1f34e819-9eef-4157-8175-c90c8f92882c
+Gadfly.plot(
+	energy[1:n_sample,:],
+	x=:daily_gas,
+	y=:daily_electric,
+	Geom.point,
+	color=:date,
+	# Geom.abline(color="red", style=:dash),
+	Theme(
+		# default_color="white",
+		# discrete_highlight_color=c->"black",
+		point_size=0.6mm,
+		alphas=[0.5]
+	),
+	Gadfly.Scale.x_log(),
+	Gadfly.Scale.y_log(),
+	Guide.title("Log Relationship between Electricity and Gas"),
+	Guide.xlabel("Daily Gas"),
+	Guide.ylabel("Daily Electricity")
+)
+
+# ╔═╡ b7cd9153-1353-4051-9197-d8137602d3fe
+md"""
+## 4. Streetview Data
+"""
+
+# ╔═╡ f7b688df-5589-4bdd-b431-94e770bc8a62
+md"""
+So we have monthly energy consumption for thousands of buildings in New York City, and we want to now capture high resolution satellite imagery for each of these buildings. We have streetview imagery for a large region of the city as well, it would be nice to put that in perspective
+"""
+
+# ╔═╡ a3efc796-7604-4260-96d1-9b1c3cd60c0d
+md"""
+##### Metadata for each of the panorama:
+"""
+
+# ╔═╡ 7f8897ad-e30f-48f0-94e2-aa8fbac7954e
+begin
+	original_streetview_set = CSV.read("/Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/photos/streetview/manhattan_metadata_nodes.tsv", DataFrame);
+		
+	streetview = @chain original_streetview_set begin
+	dropmissing(["pano_id", "coords.lat", "coords.lng"])
+	end
+	
+	streetview_points = [ 
+		ArchGDAL.createpoint(
+			streetview[i, "coords.lng"],
+			streetview[i, "coords.lat"]
+		) for i in 1:nrow(streetview)
+	];
+		
+	first(streetview, 3)
+end
+
+# ╔═╡ 7eb37472-8ee6-4c9b-bf27-eff4905b4e2e
+md"""
+In case the same dataframe above doesn't show enough information, this is a list of the columns provided:
+"""
+
+# ╔═╡ ec822073-7e2a-44b7-8739-0e094a673066
+names(streetview[1,:])
+
+# ╔═╡ 501e8ada-010a-4fae-bb2d-855baa9cf923
+md"""
+Now I want to show where the streetview images are distributed throughout Manhattan:
+"""
+
+# ╔═╡ 65ff833e-ca70-408a-992a-128108401dc8
+manhattan_councils = council[council.coun_dist .< 11, :];
+
+# ╔═╡ 568fe19d-4a33-4e4f-b3eb-d50aaeef6eed
+begin
+manhattan_plot = Plots.plot(manhattan_councils.geom, color="transparent", dpi=500)
+streetview_coverage = Plots.plot!(manhattan_plot, streetview_points[1:n_sample], markersize=3, color=color_scheme[5], alpha=0.4)
+end
+
+# ╔═╡ d915b138-e81d-4bca-941e-a9f15f56914d
 md"""
 Just for fun, we can also visualize different metadata associated with each of the street level images, like the hight of the roll of the vehicle when taking the photo
 	"""
 
-# ╔═╡ 73576310-f15d-4321-b57a-20588cc491e2
+# ╔═╡ 1d2b44be-6ece-4ec0-9142-ea480095b5ac
 begin
 set_default_plot_size(18cm, 9.5cm)
 alt_plot = Gadfly.plot(
-	streetview[1:n_points, :],
+	streetview[1:n_sample, :],
 	x=Symbol("coords.lng"),
 	y=Symbol("coords.lat"),
 	color=:alt,
@@ -94,7 +563,7 @@ alt_plot = Gadfly.plot(
 	Theme(alphas=[0.8])
 )
 roll_plot = Gadfly.plot(
-	streetview[1:n_points, :],
+	streetview[1:n_sample, :],
 	x=Symbol("coords.lng"),
 	y=Symbol("coords.lat"),
 	color=:roll_deg,
@@ -108,23 +577,19 @@ roll_plot = Gadfly.plot(
 hstack(alt_plot, roll_plot)
 end
 
-# ╔═╡ c31c6555-a4d0-4cb2-81d3-627fece66d94
-
-
-# ╔═╡ 292908a8-2f46-449b-8334-e2d8db14923d
+# ╔═╡ f7128f8a-77f1-4584-9cd6-2660ebfb084b
 md"""
-##### Energy Data: We need to strip the locations of each building in the monthly energy dataset, so we can determine the area of interest for our satellite photo
+## 5. Satellite Region of Interest
 """
 
-# ╔═╡ a91994e0-490f-411b-b085-10efdf797ec4
-begin
-	energy = GeoDataFrames.read("/Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/energy.shp")
-	sample_energy = energy[.!nonunique(energy, Symbol("Property I")), :]
-	first(sample_energy, 4)
-end
+# ╔═╡ 85716a1c-626a-4ac7-a0d9-37cf0f658f79
+md"""
+This will be curated by building a box around all of the points we have in the building energy dataset
+"""
 
-# ╔═╡ f661a52a-cf08-4d55-be3a-c659d99e2d07
+# ╔═╡ 3e737332-78f9-4a93-931c-3b4bd2a1c195
 begin
+	sample_energy = energy[.!nonunique(energy, :id), :]
 	hull_list = [ [ArchGDAL.getx(p, 0), ArchGDAL.gety(p,0)] for p in unique(sample_energy.geom) ];
 	nyc_convex_hull = convex_hull(hull_list);
 	insert!(nyc_convex_hull, length(nyc_convex_hull)+1, nyc_convex_hull[1]);
@@ -132,40 +597,168 @@ begin
 	pointslist = [ ArchGDAL.createpoint(v...) for v in hull_list ]
 end;
 
-# ╔═╡ 6a22d930-7e5b-47a1-b2b7-7a478eae2617
-md"""
-Once all the building locations have been defined from the energy dataset, I want to define an area which is comprehensive and is able to cover all of the land which contains buildings or is near buldings. I do this by determining the convex hull of the points
-"""
-
-# ╔═╡ acd5e9b3-493f-422b-b17d-e4d8b6fca943
+# ╔═╡ 3216b2cb-976e-40cd-aee4-69af2ce5cb31
 begin
-hp = Plots.plot(hull_polygon, color=color_scheme[5], alpha=0.4)
-Plots.plot!(hp, pointslist[1:400], color=color_scheme[3], alpha=0.6)
+	hp = Plots.plot(hull_polygon, color=color_scheme[1], alpha=0.2)
+	Plots.plot(hp, pointslist[1:n_sample], color=color_scheme[4], alpha=0.6)
 end
 
-# ╔═╡ ac4bfcde-883a-4b85-a4da-15c761c54308
+# ╔═╡ 4bc5a61d-12e2-4c55-a9fa-3af21cf55f7e
 md"""
-##### Next, I want to build a map that not only captures all of the potential buildigns of interest, but has some extra room to spare in case we want to have larger images at each location
+The satellite region will need to cover all of the building data, but streetview is less significant and disregarded in curating the region
 """
 
-# ╔═╡ a15a3497-6d6b-452e-b742-e4b43e5decee
+# ╔═╡ 0c400d13-dc44-4bdd-b627-2ad551109cf9
 begin
-hull_buffer = ArchGDAL.buffer(hull_polygon, 0.05)	
-# a = Plots.plot(council_footprints.geom, color="transparent")
-d = Plots.plot(hull_buffer, color=color_scheme[4], alpha=0.4, dpi=800)
-f = Plots.plot!(hull_polygon, color=color_scheme[6], alpha=0.6)
-a = Plots.plot!(f, council_footprints.geom, color="transparent")
-g = Plots.plot!(a, pointslist[1:800], markersize=3, alpha=0.5, color=color_scheme[1])
-Plots.plot!(g, streetview_points[1:100], markersize=3, alpha=0.4, color=color_scheme[end])
-# Plots.plot!(g, pointslist[1:400], markersize=3, alpha=0.7, color="darkblue")
+	hull_buffer = ArchGDAL.buffer(hull_polygon, 0.05)	
+	# a = Plots.plot(council_footprints.geom, color="transparent")
+	d = Plots.plot(hull_buffer, color=color_scheme[1], alpha=0.2, dpi=800)
+	f = Plots.plot!(hull_polygon, color=color_scheme[2], alpha=0.4)
+	a = Plots.plot!(f, council_footprints.geom, color="transparent")
+	g = Plots.plot!(a, pointslist[1:n_sample], markersize=3, alpha=0.7, color=color_scheme[3])
+	Plots.plot!(g, streetview_points[1:100], markersize=3, alpha=0.7, color=color_scheme[5])
+	# Plots.plot!(g, pointslist[1:400], markersize=3, alpha=0.7, color="darkblue")
 end
 
-# ╔═╡ 1a163b48-4281-4414-8391-561cd9cc3fbe
+# ╔═╡ c4aa4c0a-6ad0-418d-8c76-56d2a840905c
+
+
+# ╔═╡ 73c36e85-ad6f-42e2-a5c0-5fc10c8db7ce
+md"""
+## 6. Assignment - builidings to weather zones
+"""
+
+# ╔═╡ 54754fac-ceab-47e3-ac6b-d8f837078072
+md"""
+So we have a huge number of buildings, we now need to check which weather zone each building is within.
+"""
+
+# ╔═╡ 75bbca6f-6410-4a93-854c-3ea030f94217
 begin
-	open("./data/nyc/footprints/satellite_region.geojson","w") do f
-		write(f, ArchGDAL.toJSON(hull_polygon))
+	unique_energyid_df = DataFrames.combine(DataFrames.groupby(energy, :id), first)
+	building_service_mapping = Dict()
+	for energy_id in eachrow(unique_energyid_df)
+		for service_area in eachrow(service_areas)
+			if GeoDataFrames.contains(service_area.geom, energy_id.geom)
+				building_service_mapping[energy_id.id] = service_area.STATION
+				@goto next_energy_id
+			end
+		end
+		@label next_energy_id
 	end
+	energy[!,:STATION] = [ building_service_mapping[id] for id in energy[!,:id]]
+	first(select(energy, [:STATION, :id], :), 3)
+end
+
+# ╔═╡ 85e138e8-fd2f-4239-9b41-2aa6cb9d8ed2
+begin
+	unique_small_energy = unique(energy, :id)
+	small_energy = unique_small_energy[StatsBase.shuffle(1:nrow(unique_small_energy))[1:2400], :]
+	
+	unique_colors = cgrad(:matter, 4, categorical = true);
+	service_color_map = Dict()
+	for (index,zone) in enumerate(unique(small_energy.STATION))
+		service_color_map[zone] = unique_colors[index]
+	end
+
+	small_energy[!,:service_zone_color] = [ service_color_map[id] for id in small_energy[!,:STATION]];
+	first(small_energy, 3)
 end;
+
+# ╔═╡ bacb917d-8d9a-4081-8039-966849ade9d6
+begin
+	weather_membership_plot = Plots.plot(
+		small_energy.geom,
+		palette=small_energy.service_zone_color,
+		markersize=3.4,
+		markerstrokewidth=0.3,
+		alpha=0.7,
+		dpi=400
+	)
+	Plots.plot!(
+		weather_membership_plot,
+		council.geom,
+		color="transparent",
+		markerstrokealpha=0.1
+	)
+end
+
+# ╔═╡ e1bc6d5a-99c8-4d83-aad6-491b5ededfd0
+md"""
+Finally, we have a cleaned dataset where each building has daily statistics for energy consumption and is linked to the average monthly weather statistics for the region
+	"""
+
+# ╔═╡ 1cc473f5-6ac6-4876-af22-987768f2ad16
+begin
+energy_climate = @chain energy begin
+	DataFrames.leftjoin(
+		_, 
+		geoweather, 
+		on = [:STATION, :date],
+		makeunique=true 
+	)
+	select([
+		:geom,
+		:id,
+		:daily_electric,
+		:daily_gas,
+		:heightroof,
+		:cnstrct_yr,
+		:groundelev,
+		:month,
+		:year,
+		:month_days,
+		:TMAX,
+		:TMIN,
+		:PRCP
+	])
+end
+end
+
+# ╔═╡ d8512b16-84f5-4b0a-a7de-3bffb3367242
+
+
+# ╔═╡ 9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
+md"""
+## 7. Splitting for training and testing
+"""
+
+# ╔═╡ 78093bf4-7a86-4d73-95ee-47683ef926fa
+test_district = 2
+
+# ╔═╡ e9f57d8a-e13a-472d-a567-790cab0e7c1b
+begin
+	selected_council_footprint = council_footprints[council_footprints.coun_dist .== test_district, :].geom[1]
+	council_colormap = cgrad(:matter, 2, categorical = true);
+	bool_colors = Dict(
+		true => "indianred",
+		false => "transparent"
+	)
+	council_colors = map(x -> bool_colors[x], council.coun_dist .== test_district)
+
+	Plots.plot(
+		council.geom,
+		palette=council_colors,
+		xlims=(-74.3,-73.67),
+		ylims=(40.47, 40.92),
+		title="Test Region",
+		dpi=500
+	)
+end
+
+# ╔═╡ 5bac64d2-36ed-493c-b4a5-527fa5c336be
+begin
+	test = filter(
+		x -> GeoDataFrames.contains(selected_council_footprint, x.geom), energy_climate)
+	train = filter(
+		x -> !GeoDataFrames.contains(selected_council_footprint, x.geom), energy_climate)
+end;
+
+# ╔═╡ 03905524-ba7d-4ea5-8c3e-0539c29d8668
+nrow(test)
+
+# ╔═╡ 3fd53180-5822-49a2-82f2-2a9e974ff239
+nrow(train)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -173,29 +766,41 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 ArchGDAL = "c9ce4bd3-c3d5-55b8-8973-c0e20141b8c3"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-GMT = "5752ebe1-31b9-557e-87aa-f909b540aa54"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004"
 GeoDataFrames = "62cb38b5-d8d2-4862-a48e-6a340996859f"
-GeometricalPredicates = "fd0ad045-b25c-564e-8f9c-8ef5c5f21267"
-JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+GeoFormatTypes = "68eda718-8dee-11e9-39e7-89f7f65f511f"
+GeoJSON = "61d90e0f-e114-555e-ac52-39dfb47a3ef9"
+GeoStats = "dcc97b0b-8ce5-5539-9008-bb190f959ef6"
+GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 LazySets = "b4f0291d-fe17-52bc-9479-3d1a343d9043"
+Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-Shapefile = "8e980c4a-a4fe-5da2-b3a7-4b4b0353a2f4"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+VoronoiCells = "e3e34ffb-84e9-5012-9490-92c94d0c60a4"
 
 [compat]
-ArchGDAL = "~0.7.4"
-CSV = "~0.10.3"
+ArchGDAL = "~0.6.0"
+CSV = "~0.10.2"
 Chain = "~0.4.10"
+ColorSchemes = "~3.17.1"
 DataFrames = "~1.3.2"
-GMT = "~0.41.1"
 Gadfly = "~1.3.4"
-GeoDataFrames = "~0.2.0"
-GeometricalPredicates = "~0.4.1"
-JSON = "~0.21.3"
+GeoDataFrames = "~0.1.4"
+GeoFormatTypes = "~0.3.0"
+GeoJSON = "~0.5.1"
+GeoStats = "~0.31.2"
+GeometryBasics = "~0.4.2"
 LazySets = "~1.56.0"
-Plots = "~1.27.0"
-Shapefile = "~0.7.4"
+Missings = "~1.0.2"
+Plots = "~1.25.11"
+PlutoUI = "~0.7.37"
+StatsBase = "~0.33.16"
+VoronoiCells = "~0.3.0"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -204,13 +809,19 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-DEV.53"
 manifest_format = "2.0"
-project_hash = "cb6091398a3785b1209e182a7d1c160052f3575e"
+project_hash = "fc34f9f35c0165c783f53adb8e6fddd12583a131"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
 git-tree-sha1 = "6f1d9bc1c08f9f4a8fa92e3ea3cb50153a1b40d4"
 uuid = "621f4979-c628-5d54-868e-fcf4e3e8185c"
 version = "1.1.0"
+
+[[deps.AbstractPlutoDingetjes]]
+deps = ["Pkg"]
+git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
+uuid = "6e696c72-6542-2067-7265-42206c756150"
+version = "1.1.4"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra"]
@@ -219,14 +830,25 @@ uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 version = "3.3.3"
 
 [[deps.ArchGDAL]]
-deps = ["ColorTypes", "Dates", "DiskArrays", "GDAL", "GeoFormatTypes", "GeoInterface", "ImageCore", "Tables"]
-git-tree-sha1 = "245d68fd5749c0aee757da162c2956b595b274bb"
+deps = ["Dates", "DiskArrays", "GDAL", "GeoFormatTypes", "GeoInterface", "Tables"]
+git-tree-sha1 = "ac9a3bdf0b1cc5bd276c530b645194bf57373ecf"
 uuid = "c9ce4bd3-c3d5-55b8-8973-c0e20141b8c3"
-version = "0.7.4"
+version = "0.6.0"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 version = "1.1.1"
+
+[[deps.ArrayInterface]]
+deps = ["Compat", "IfElse", "LinearAlgebra", "Requires", "SparseArrays", "Static"]
+git-tree-sha1 = "6e8fada11bb015ecf9263f64b156f98b546918c7"
+uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
+version = "5.0.5"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -237,8 +859,25 @@ git-tree-sha1 = "66771c8d21c8ff5e3a93379480a2307ac36863f7"
 uuid = "13072b0f-2c55-5437-9ae7-d433b7a33950"
 version = "1.0.1"
 
+[[deps.AxisArrays]]
+deps = ["Dates", "IntervalSets", "IterTools", "RangeArrays"]
+git-tree-sha1 = "d127d5e4d86c7680b20c35d40b503c74b9a39b5e"
+uuid = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
+version = "0.4.4"
+
+[[deps.BangBang]]
+deps = ["Compat", "ConstructionBase", "Future", "InitialValues", "LinearAlgebra", "Requires", "Setfield", "Tables", "ZygoteRules"]
+git-tree-sha1 = "b15a6bc52594f5e4a3b825858d1089618871bf9d"
+uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
+version = "0.3.36"
+
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.Baselet]]
+git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
+version = "0.1.1"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
@@ -271,9 +910,9 @@ version = "1.0.1+0"
 
 [[deps.CSV]]
 deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings"]
-git-tree-sha1 = "9310d9495c1eb2e4fa1955dd478660e2ecab1fbb"
+git-tree-sha1 = "9519274b50500b8029973d241d32cfbf0b127d97"
 uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-version = "0.10.3"
+version = "0.10.2"
 
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
@@ -289,9 +928,9 @@ version = "0.5.1"
 
 [[deps.CategoricalArrays]]
 deps = ["DataAPI", "Future", "Missings", "Printf", "Requires", "Statistics", "Unicode"]
-git-tree-sha1 = "3b60064cb48efe986179359e08ffb568a6d510a2"
+git-tree-sha1 = "5196120341b6dfe3ee5f33cf97392a05d6fe80d0"
 uuid = "324d7699-5711-5eae-9e2f-1d82baa6b597"
-version = "0.10.3"
+version = "0.10.4"
 
 [[deps.Chain]]
 git-tree-sha1 = "339237319ef4712e6e5df7758d0bccddf5c237d9"
@@ -309,6 +948,24 @@ deps = ["ChainRulesCore", "LinearAlgebra", "Test"]
 git-tree-sha1 = "bf98fa45a0a4cee295de98d4c1462be26345b9a1"
 uuid = "9e997f8a-9a97-42d5-a9f1-ce6bfc15e2c0"
 version = "0.1.2"
+
+[[deps.CircularArrays]]
+deps = ["OffsetArrays"]
+git-tree-sha1 = "0598a9ea22c65bfde7f07f21485ebf60deee3302"
+uuid = "7a955b69-7140-5f4e-a0ed-f168c5e2e749"
+version = "1.3.0"
+
+[[deps.Clustering]]
+deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "SparseArrays", "Statistics", "StatsBase"]
+git-tree-sha1 = "75479b7df4167267d75294d14b58244695beb2ac"
+uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+version = "0.14.2"
+
+[[deps.CoDa]]
+deps = ["AxisArrays", "Distances", "Distributions", "FillArrays", "LinearAlgebra", "Printf", "Random", "RecipesBase", "ScientificTypes", "StaticArrays", "Statistics", "StatsBase", "TableOperations", "TableTransforms", "Tables", "UnicodePlots"]
+git-tree-sha1 = "3878095fcb8cc1e245ecbbea2023fed518ad55bf"
+uuid = "5900dafe-f573-5c72-b367-76665857777b"
+version = "0.9.2"
 
 [[deps.CodecBzip2]]
 deps = ["Bzip2_jll", "Libdl", "TranscodingStreams"]
@@ -334,17 +991,16 @@ git-tree-sha1 = "024fe24d83e4a5bf5fc80501a314ce0d1aa35597"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 version = "0.11.0"
 
-[[deps.ColorVectorSpace]]
-deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "SpecialFunctions", "Statistics", "TensorCore"]
-git-tree-sha1 = "3f1f500312161f1ae067abe07d13b40f78f32e07"
-uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.9.8"
-
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
 git-tree-sha1 = "417b0ed7b8b838aa6ca0a87aadf1bb9eb111ce40"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.8"
+
+[[deps.Combinatorics]]
+git-tree-sha1 = "08c8b6831dc00bfea825826be0bc8336fc369860"
+uuid = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
+version = "1.0.2"
 
 [[deps.CommonSubexpressions]]
 deps = ["MacroTools", "Test"]
@@ -369,11 +1025,16 @@ git-tree-sha1 = "9a2695195199f4f20b94898c8a8ac72609e165a4"
 uuid = "a81c6b42-2e10-5240-aca2-a61377ecd94b"
 version = "0.9.3"
 
-[[deps.Conda]]
-deps = ["Downloads", "JSON", "VersionParsing"]
-git-tree-sha1 = "6e47d11ea2776bc5627421d59cdcc1296c058071"
-uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
-version = "1.7.0"
+[[deps.CompositionsBase]]
+git-tree-sha1 = "455419f7e328a1a2493cabc6428d79e951349769"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.1"
+
+[[deps.ConstructionBase]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "f74e9d5388b8620b4cee35d4c5a618dd4dc547f4"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.3.0"
 
 [[deps.Contour]]
 deps = ["StaticArrays"]
@@ -387,16 +1048,16 @@ git-tree-sha1 = "6c9671364c68c1158ac2524ac881536195b7e7bc"
 uuid = "7ad07ef1-bdf2-5661-9d2b-286fd4296dac"
 version = "0.2.0"
 
+[[deps.CpuId]]
+deps = ["Markdown"]
+git-tree-sha1 = "32d125af0fb8ec3f8935896122c5e345709909e5"
+uuid = "adafc99b-e345-5852-983c-f28acb93d879"
+version = "0.3.0"
+
 [[deps.Crayons]]
 git-tree-sha1 = "249fe38abf76d48563e2f4556bebd215aa317e15"
 uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
 version = "4.1.1"
-
-[[deps.DBFTables]]
-deps = ["Printf", "Tables", "WeakRefStrings"]
-git-tree-sha1 = "f5b78d021b90307fb7170c4b013f350e6abe8fed"
-uuid = "75c7ada1-017a-5fb6-b8c7-2125ff2d6c93"
-version = "1.0.0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "cc70b17275652eb47bc9e5f81635981f13cea5c8"
@@ -424,6 +1085,11 @@ version = "1.0.0"
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
+[[deps.DefineSingletons]]
+git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
+version = "0.1.2"
+
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
@@ -433,6 +1099,18 @@ deps = ["InverseFunctions", "Test"]
 git-tree-sha1 = "80c3e8639e3353e5d2912fb3a1916b8455e2494b"
 uuid = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
 version = "0.4.0"
+
+[[deps.DensityRatioEstimation]]
+deps = ["LinearAlgebra", "Parameters", "Random", "Requires", "Statistics", "StatsBase"]
+git-tree-sha1 = "12bcfc6c7599069588bf00b83ecb564d5a5eee68"
+uuid = "ab46fb84-d57c-11e9-2f65-6f72e4a7229f"
+version = "0.5.0"
+
+[[deps.Dictionaries]]
+deps = ["Indexing", "Random"]
+git-tree-sha1 = "63004a55faf43a5f7be7f5eca36ce355e9a75b2c"
+uuid = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
+version = "0.3.18"
 
 [[deps.DiffResults]]
 deps = ["StaticArrays"]
@@ -463,9 +1141,9 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.Distributions]]
 deps = ["ChainRulesCore", "DensityInterface", "FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "Test"]
-git-tree-sha1 = "9d3c0c762d4666db9187f363a76b47f7346e673b"
+git-tree-sha1 = "43ea1b7ab7936920a1170d6a35f05a1f9f495216"
 uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
-version = "0.25.49"
+version = "0.25.51"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -489,6 +1167,11 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "3f3a2501fa7236e9b911e0f7a588c657e822bb6d"
 uuid = "5ae413db-bbd1-5e63-b57d-d24a61df00f5"
 version = "2.2.3+0"
+
+[[deps.EllipsisNotation]]
+git-tree-sha1 = "18ee049accec8763be17a933737c1dd0fdf8673a"
+uuid = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"
+version = "1.0.0"
 
 [[deps.ErrorfreeArithmetic]]
 git-tree-sha1 = "d6863c556f1142a061532e79f611aa46be201686"
@@ -547,9 +1230,15 @@ uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
 [[deps.FillArrays]]
 deps = ["LinearAlgebra", "Random", "SparseArrays", "Statistics"]
-git-tree-sha1 = "0dbc5b9683245f905993b51d2814202d75b34f1a"
+git-tree-sha1 = "deed294cde3de20ae0b2e0355a6c4e1c6a5ceffc"
 uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
-version = "0.13.1"
+version = "0.12.8"
+
+[[deps.FiniteDiff]]
+deps = ["ArrayInterface", "LinearAlgebra", "Requires", "SparseArrays", "StaticArrays"]
+git-tree-sha1 = "56956d1e4c1221000b7781104c58c34019792951"
+uuid = "6a86dc24-6348-571c-b903-95158fe2bd41"
+version = "2.11.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -617,9 +1306,9 @@ version = "3.3.6+0"
 
 [[deps.GLPK]]
 deps = ["GLPK_jll", "MathOptInterface"]
-git-tree-sha1 = "7971e2ce3715a873b539174137bd8c4e19ac7a8f"
+git-tree-sha1 = "c3cc0a7a4e021620f1c0e67679acdbf1be311eb0"
 uuid = "60bf3e95-4087-53dc-ae20-288a0d20c6a6"
-version = "1.0.0"
+version = "1.0.1"
 
 [[deps.GLPK_jll]]
 deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -631,12 +1320,6 @@ version = "5.0.1+0"
 deps = ["Artifacts", "Libdl"]
 uuid = "781609d7-10c4-51f6-84f2-b8444358ff6d"
 version = "6.2.1+1"
-
-[[deps.GMT]]
-deps = ["Conda", "Dates", "Pkg", "Printf", "Statistics"]
-git-tree-sha1 = "c5434eae0bb708d0a643bd3e684758408f9304b1"
-uuid = "5752ebe1-31b9-557e-87aa-f909b540aa54"
-version = "0.41.1"
 
 [[deps.GR]]
 deps = ["Base64", "DelimitedFiles", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Pkg", "Printf", "Random", "RelocatableFolders", "Serialization", "Sockets", "Test", "UUIDs"]
@@ -656,11 +1339,23 @@ git-tree-sha1 = "13b402ae74c0558a83c02daa2f3314ddb2d515d3"
 uuid = "c91e804a-d5a3-530f-b6f0-dfbca275c004"
 version = "1.3.4"
 
+[[deps.GeoClustering]]
+deps = ["CategoricalArrays", "Clustering", "Distances", "GeoStatsBase", "LinearAlgebra", "MLJModelInterface", "Meshes", "SparseArrays", "Statistics", "TableDistances", "TableOperations", "Tables"]
+git-tree-sha1 = "627e49f0243c6b112d700630096402da593499df"
+uuid = "7472b188-6dde-460e-bd07-96c4bc049f7e"
+version = "0.2.10"
+
 [[deps.GeoDataFrames]]
 deps = ["ArchGDAL", "DataFrames", "GeoFormatTypes", "Pkg", "Tables"]
-git-tree-sha1 = "5e7002befc1d6c134ddc66c2d74cb19a085c3bac"
+git-tree-sha1 = "f0ca8db6521a37deff030cc66550c6e272e81a53"
 uuid = "62cb38b5-d8d2-4862-a48e-6a340996859f"
-version = "0.2.0"
+version = "0.1.4"
+
+[[deps.GeoEstimation]]
+deps = ["Distances", "GeoStatsBase", "KrigingEstimators", "LinearAlgebra", "Meshes", "NearestNeighbors", "Variography"]
+git-tree-sha1 = "6b03126f84eac5192a5ea2de5401a7dc24e69341"
+uuid = "a4aa24f8-9f24-4d1a-b848-66d123bfa54d"
+version = "0.9.4"
 
 [[deps.GeoFormatTypes]]
 git-tree-sha1 = "bb75ce99c9d6fb2edd8ef8ee474991cdacf12221"
@@ -672,6 +1367,36 @@ deps = ["RecipesBase"]
 git-tree-sha1 = "6b1a29c757f56e0ae01a35918a2c39260e2c4b98"
 uuid = "cf35fbd7-0cd7-5166-be24-54bfbe79505f"
 version = "0.5.7"
+
+[[deps.GeoJSON]]
+deps = ["GeoInterface", "JSON3"]
+git-tree-sha1 = "4764da92d333658552b2bedc9f6b379f017c727b"
+uuid = "61d90e0f-e114-555e-ac52-39dfb47a3ef9"
+version = "0.5.1"
+
+[[deps.GeoLearning]]
+deps = ["Distributions", "GeoStatsBase", "MLJModelInterface", "Meshes", "TableOperations", "Tables"]
+git-tree-sha1 = "1899ee2d7004b259bd958aaeb39d8f586435c472"
+uuid = "90c4468e-a93e-43b4-8fb5-87d804bc629f"
+version = "0.1.10"
+
+[[deps.GeoSimulation]]
+deps = ["CpuId", "Distributions", "FFTW", "GeoStatsBase", "KrigingEstimators", "LinearAlgebra", "Meshes", "Random", "SpecialFunctions", "Statistics", "Tables", "Variography"]
+git-tree-sha1 = "af72ecf00106ed570a633d2293921d4ec1e09bce"
+uuid = "220efe8a-9139-4e14-a4fa-f683d572f4c5"
+version = "0.7.0"
+
+[[deps.GeoStats]]
+deps = ["DensityRatioEstimation", "Distances", "GeoClustering", "GeoEstimation", "GeoLearning", "GeoSimulation", "GeoStatsBase", "KrigingEstimators", "LossFunctions", "Meshes", "PointPatterns", "Reexport", "ScientificTypes", "TableTransforms", "Variography"]
+git-tree-sha1 = "0ebdf5c7e525f64aabb712e02b3166fd585258c4"
+uuid = "dcc97b0b-8ce5-5539-9008-bb190f959ef6"
+version = "0.31.2"
+
+[[deps.GeoStatsBase]]
+deps = ["Combinatorics", "DensityRatioEstimation", "Distances", "Distributed", "Distributions", "LinearAlgebra", "LossFunctions", "MLJModelInterface", "Meshes", "Optim", "Parameters", "RecipesBase", "ReferenceFrameRotations", "ScientificTypes", "StaticArrays", "Statistics", "StatsBase", "TableOperations", "Tables", "Transducers", "TypedTables"]
+git-tree-sha1 = "f11859648cd7694fdc2a2af929a92af85306a182"
+uuid = "323cb8eb-fbf6-51c0-afd0-f8fba70507b2"
+version = "0.25.1"
 
 [[deps.GeometricalPredicates]]
 git-tree-sha1 = "527d55e28ff359029d8f72d77c0bdcaf28793079"
@@ -695,12 +1420,6 @@ deps = ["Artifacts", "Gettext_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libic
 git-tree-sha1 = "a32d672ac2c967f3deb8a81d828afc739c838a06"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
 version = "2.68.3+2"
-
-[[deps.Graphics]]
-deps = ["Colors", "LinearAlgebra", "NaNMath"]
-git-tree-sha1 = "1c5a84319923bea76fa145d49e93aa4394c73fc2"
-uuid = "a2bd30eb-e257-5431-a919-1863eab51364"
-version = "1.1.1"
 
 [[deps.Graphite2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -737,11 +1456,32 @@ git-tree-sha1 = "65e4589030ef3c44d3b90bdc5aac462b4bb05567"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.8"
 
-[[deps.ImageCore]]
-deps = ["AbstractFFTs", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Graphics", "MappedArrays", "MosaicViews", "OffsetArrays", "PaddedViews", "Reexport"]
-git-tree-sha1 = "9a5c62f231e5bba35695a20988fc7cd6de7eeb5a"
-uuid = "a09fc81d-aa75-5fe9-8630-4744c3626534"
+[[deps.Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.4"
+
+[[deps.HypertextLiteral]]
+git-tree-sha1 = "2b078b5a615c6c0396c77810d92ee8c6f470d238"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 version = "0.9.3"
+
+[[deps.IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "0.2.2"
+
+[[deps.IfElse]]
+git-tree-sha1 = "debdd00ffef04665ccbb3e150747a77560e8fad1"
+uuid = "615f187c-cbe4-4ef1-ba3b-2fcf58d6d173"
+version = "0.1.1"
+
+[[deps.Indexing]]
+git-tree-sha1 = "ce1566720fd6b19ff3411404d4b977acd4814f9f"
+uuid = "313cdc1a-70c2-5d6a-ae34-0150d3930a38"
+version = "1.1.1"
 
 [[deps.IndirectArrays]]
 git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
@@ -752,6 +1492,11 @@ version = "1.0.0"
 git-tree-sha1 = "f550e6e32074c939295eb5ea6de31849ac2c9625"
 uuid = "83e8ac13-25f8-5344-8a64-a9f2b223428f"
 version = "0.5.1"
+
+[[deps.InitialValues]]
+git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
+version = "0.3.1"
 
 [[deps.InlineStrings]]
 deps = ["Parsers"]
@@ -780,6 +1525,12 @@ deps = ["CRlibm", "FastRounding", "LinearAlgebra", "Markdown", "Random", "Recipe
 git-tree-sha1 = "1fa3ba0893ea5611830feedac46b7f95872cbd01"
 uuid = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
 version = "0.20.5"
+
+[[deps.IntervalSets]]
+deps = ["Dates", "EllipsisNotation", "Statistics"]
+git-tree-sha1 = "3cc368af3f110a767ac786560045dceddfc16758"
+uuid = "8197267c-284f-5f27-9208-e0e47529a953"
+version = "0.5.3"
 
 [[deps.InverseFunctions]]
 deps = ["Test"]
@@ -819,6 +1570,12 @@ git-tree-sha1 = "3c837543ddb02250ef42f4738347454f95079d4e"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.3"
 
+[[deps.JSON3]]
+deps = ["Dates", "Mmap", "Parsers", "StructTypes", "UUIDs"]
+git-tree-sha1 = "8c1f668b24d999fb47baf80436194fdccec65ad2"
+uuid = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+version = "1.9.4"
+
 [[deps.JpegTurbo_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "b53380851c6e6664204efb2e62cd24fa5c47e4ba"
@@ -827,9 +1584,9 @@ version = "2.1.2+0"
 
 [[deps.JuMP]]
 deps = ["Calculus", "DataStructures", "ForwardDiff", "LinearAlgebra", "MathOptInterface", "MutableArithmetics", "NaNMath", "OrderedCollections", "Printf", "SparseArrays", "SpecialFunctions"]
-git-tree-sha1 = "ab093fae27d6ccbb41eb7c8e8c5664b881c79929"
+git-tree-sha1 = "c48de82c5440b34555cb60f3628ebfb9ab3dc5ef"
 uuid = "4076af6c-e467-56ae-b986-b466b2749572"
-version = "0.23.1"
+version = "0.23.2"
 
 [[deps.Juno]]
 deps = ["Base64", "Logging", "Media", "Profile"]
@@ -842,6 +1599,12 @@ deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "Stats
 git-tree-sha1 = "591e8dc09ad18386189610acafb970032c519707"
 uuid = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 version = "0.6.3"
+
+[[deps.KrigingEstimators]]
+deps = ["Combinatorics", "GeoStatsBase", "LinearAlgebra", "Meshes", "Statistics", "Unitful", "Variography"]
+git-tree-sha1 = "4ceec05cc372d6e6a8a7b0b03707020df6c08546"
+uuid = "d293930c-a38c-56c5-8ebb-12008647b47a"
+version = "0.8.9"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -881,6 +1644,11 @@ deps = ["Distributed", "ExprTools", "GLPK", "InteractiveUtils", "IntervalArithme
 git-tree-sha1 = "64f9bd729831db24a75dd817f91956daadfe1e2d"
 uuid = "b4f0291d-fe17-52bc-9479-3d1a343d9043"
 version = "1.56.0"
+
+[[deps.LearnBase]]
+git-tree-sha1 = "a0d90569edd490b82fdc4dc078ea54a5a800d30a"
+uuid = "7f8f8fb0-2700-5f03-b4bd-41f8cfc144b6"
+version = "0.4.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -952,6 +1720,12 @@ git-tree-sha1 = "7f3efec06033682db852f8b3bc3c1d2b0a0ab066"
 uuid = "38a345b3-de98-5d2b-a5d3-14cd9215e700"
 version = "2.36.0+0"
 
+[[deps.LineSearches]]
+deps = ["LinearAlgebra", "NLSolversBase", "NaNMath", "Parameters", "Printf"]
+git-tree-sha1 = "f27132e551e959b3667d8c93eae90973225032dd"
+uuid = "d3d80556-e9d4-5f37-9878-2ab0fcc64255"
+version = "7.1.1"
+
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -970,12 +1744,18 @@ version = "0.5.4"
 
 [[deps.LogExpFunctions]]
 deps = ["ChainRulesCore", "ChangesOfVariables", "DocStringExtensions", "InverseFunctions", "IrrationalConstants", "LinearAlgebra"]
-git-tree-sha1 = "3f7cb7157ef860c637f3f4929c8ed5d9716933c6"
+git-tree-sha1 = "58f25e56b706f95125dcb796f39e1fb01d913a71"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
-version = "0.3.7"
+version = "0.3.10"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+
+[[deps.LossFunctions]]
+deps = ["InteractiveUtils", "LearnBase", "Markdown", "RecipesBase", "StatsBase"]
+git-tree-sha1 = "0f057f6ea90a84e73a8ef6eebb4dc7b5c330020f"
+uuid = "30fc2ffe-d236-52d8-8643-a9d8f7c094a7"
+version = "0.7.2"
 
 [[deps.MKL_jll]]
 deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg"]
@@ -983,16 +1763,23 @@ git-tree-sha1 = "e595b205efd49508358f7dc670a940c790204629"
 uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
 version = "2022.0.0+0"
 
+[[deps.MLJModelInterface]]
+deps = ["Random", "ScientificTypesBase", "StatisticalTraits"]
+git-tree-sha1 = "74d7fb54c306af241c5f9d4816b735cb4051e125"
+uuid = "e80e1ace-859a-464e-9ed9-23947d8ae3ea"
+version = "1.4.2"
+
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
 git-tree-sha1 = "3d3e902b31198a27340d0bf00d6ac452866021cf"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.9"
 
-[[deps.MappedArrays]]
-git-tree-sha1 = "e8b359ef06ec72e8c030463fe02efe5527ee5142"
-uuid = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
-version = "0.4.1"
+[[deps.MarchingCubes]]
+deps = ["StaticArrays"]
+git-tree-sha1 = "5f768e0a0c3875df386be4c036f78c8bd4b1a9b6"
+uuid = "299715c1-40a9-479a-aaf9-4a633d36f717"
+version = "0.1.2"
 
 [[deps.Markdown]]
 deps = ["Base64"]
@@ -1026,6 +1813,18 @@ git-tree-sha1 = "75a54abd10709c01f1b86b84ec225d26e840ed58"
 uuid = "e89f7d12-3494-54d1-8411-f7d8b9ae1f27"
 version = "0.5.0"
 
+[[deps.Meshes]]
+deps = ["CategoricalArrays", "CircularArrays", "Distances", "IterTools", "IteratorInterfaceExtensions", "LinearAlgebra", "NearestNeighbors", "Random", "RecipesBase", "ReferenceFrameRotations", "SimpleTraits", "SparseArrays", "SpecialFunctions", "StaticArrays", "StatsBase", "TableTraits", "Tables"]
+git-tree-sha1 = "103aabf2208c62de7136ce3bc9211a99405c87a7"
+uuid = "eacbb407-ea5a-433e-ab97-5258b1ca43fa"
+version = "0.21.1"
+
+[[deps.MicroCollections]]
+deps = ["BangBang", "InitialValues", "Setfield"]
+git-tree-sha1 = "6bb7786e4f24d44b4e29df03c69add1b63d88f01"
+uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
+version = "0.1.2"
+
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "bf210ce90b6c9eed32d25dbcae1ebc565df2687f"
@@ -1034,12 +1833,6 @@ version = "1.0.2"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
-
-[[deps.MosaicViews]]
-deps = ["MappedArrays", "OffsetArrays", "PaddedViews", "StackViews"]
-git-tree-sha1 = "b34e3bc3ca7c94914418637cb10cc4d1d80d877d"
-uuid = "e94cdb99-869f-56ef-bcf0-1ae2bcbe0389"
-version = "0.3.3"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
@@ -1051,10 +1844,22 @@ git-tree-sha1 = "ba8c0f8732a24facba709388c74ba99dcbfdda1e"
 uuid = "d8a4904e-b15c-11e9-3269-09a3773c0cb0"
 version = "1.0.0"
 
+[[deps.NLSolversBase]]
+deps = ["DiffResults", "Distributed", "FiniteDiff", "ForwardDiff"]
+git-tree-sha1 = "50310f934e55e5ca3912fb941dec199b49ca9b68"
+uuid = "d41bc354-129a-5804-8e4c-c37616107c6c"
+version = "7.8.2"
+
 [[deps.NaNMath]]
 git-tree-sha1 = "b086b7ea07f8e38cf122f5016af580881ac914fe"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "0.3.7"
+
+[[deps.NearestNeighbors]]
+deps = ["Distances", "StaticArrays"]
+git-tree-sha1 = "16baacfdc8758bc374882566c9187e785e85c2f0"
+uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
+version = "0.4.9"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1100,6 +1905,12 @@ git-tree-sha1 = "13652491f6856acfd2db29360e1bbcd4565d04f1"
 uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
 version = "0.5.5+0"
 
+[[deps.Optim]]
+deps = ["Compat", "FillArrays", "ForwardDiff", "LineSearches", "LinearAlgebra", "NLSolversBase", "NaNMath", "Parameters", "PositiveFactorizations", "Printf", "SparseArrays", "StatsBase"]
+git-tree-sha1 = "bc0a748740e8bc5eeb9ea6031e6f050de1fc0ba2"
+uuid = "429524aa-4258-5aef-a3af-852621145aeb"
+version = "1.6.2"
+
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "51a08fb14ec28da2ec7a927c4337e4332c2a4720"
@@ -1129,11 +1940,11 @@ git-tree-sha1 = "59c43648bf081f732eae1e44b8883f713d2ca1b6"
 uuid = "58948b4f-47e0-5654-a9ad-f609743f8632"
 version = "800.200.100+0"
 
-[[deps.PaddedViews]]
-deps = ["OffsetArrays"]
-git-tree-sha1 = "03a7a85b76381a3d04c7a1656039197e70eda03d"
-uuid = "5432bcbf-9aad-5242-b902-cca2824c8663"
-version = "0.5.11"
+[[deps.Parameters]]
+deps = ["OrderedCollections", "UnPack"]
+git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates"]
@@ -1160,15 +1971,27 @@ version = "2.0.1"
 
 [[deps.PlotUtils]]
 deps = ["ColorSchemes", "Colors", "Dates", "Printf", "Random", "Reexport", "Statistics"]
-git-tree-sha1 = "6f1b25e8ea06279b5689263cc538f51331d7ca17"
+git-tree-sha1 = "bb16469fd5224100e422f0b027d26c5a25de1200"
 uuid = "995b91a9-d308-5afd-9ec6-746e21dbc043"
-version = "1.1.3"
+version = "1.2.0"
 
 [[deps.Plots]]
-deps = ["Base64", "Contour", "Dates", "Downloads", "FFMPEG", "FixedPointNumbers", "GR", "GeometryBasics", "JSON", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "Pkg", "PlotThemes", "PlotUtils", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "UUIDs", "UnicodeFun", "Unzip"]
-git-tree-sha1 = "9213b4c18b57b7020ee20f33a4ba49eb7bef85e0"
+deps = ["Base64", "Contour", "Dates", "Downloads", "FFMPEG", "FixedPointNumbers", "GR", "GeometryBasics", "JSON", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "PlotThemes", "PlotUtils", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "UUIDs", "UnicodeFun", "Unzip"]
+git-tree-sha1 = "5c907bdee5966a9adb8a106807b7c387e51e4d6c"
 uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-version = "1.27.0"
+version = "1.25.11"
+
+[[deps.PlutoUI]]
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
+git-tree-sha1 = "bf0a1121af131d9974241ba53f601211e9303a9e"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.37"
+
+[[deps.PointPatterns]]
+deps = ["Distributions", "GeoStatsBase", "Meshes"]
+git-tree-sha1 = "263d83efd53ec54a32f568550cea951be4942bd4"
+uuid = "e61b41b6-3414-4803-863f-2b69057479eb"
+version = "0.3.14"
 
 [[deps.PooledArrays]]
 deps = ["DataAPI", "Future"]
@@ -1176,11 +1999,17 @@ git-tree-sha1 = "db3a23166af8aebf4db5ef87ac5b00d36eb771e2"
 uuid = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
 version = "1.4.0"
 
+[[deps.PositiveFactorizations]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "17275485f373e6673f7e7f97051f703ed5b15b20"
+uuid = "85a6dd25-e78a-55b7-8502-1745935b8125"
+version = "0.2.4"
+
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "de893592a221142f3db370f48290e3a2ef39998f"
+git-tree-sha1 = "d3538e7f8a790dc8903519090857ef8e1283eecd"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.2.4"
+version = "1.2.5"
 
 [[deps.PrettyTables]]
 deps = ["Crayons", "Formatting", "Markdown", "Reexport", "Tables"]
@@ -1216,6 +2045,11 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
+[[deps.RangeArrays]]
+git-tree-sha1 = "b9039e93773ddcfc828f12aadf7115b4b4d225f5"
+uuid = "b3c3ace0-ae52-54e7-9d0b-2c1406fd6b9d"
+version = "0.3.2"
+
 [[deps.Ratios]]
 deps = ["Requires"]
 git-tree-sha1 = "dc84268fe0e3335a62e315a3a7cf2afa7178a734"
@@ -1237,6 +2071,12 @@ version = "0.5.1"
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
+
+[[deps.ReferenceFrameRotations]]
+deps = ["Crayons", "LinearAlgebra", "Printf", "Random", "StaticArrays"]
+git-tree-sha1 = "ec9bde2e30bc221e05e20fcec9a36a9c315e04a6"
+uuid = "74f56ac7-18b3-5285-802d-d4bd4f104033"
+version = "3.0.0"
 
 [[deps.RelocatableFolders]]
 deps = ["SHA", "Scratch"]
@@ -1277,6 +2117,17 @@ git-tree-sha1 = "f79c1c58951ea4f5bb63bb96b99bf7f440a3f774"
 uuid = "76ed43ae-9a5d-5a62-8c75-30186b810ce8"
 version = "3.38.0+0"
 
+[[deps.ScientificTypes]]
+deps = ["CategoricalArrays", "ColorTypes", "Dates", "Distributions", "PrettyTables", "Reexport", "ScientificTypesBase", "StatisticalTraits", "Tables"]
+git-tree-sha1 = "ba70c9a6e4c81cc3634e3e80bb8163ab5ef57eb8"
+uuid = "321657f4-b219-11e9-178b-2701a2544e81"
+version = "3.0.0"
+
+[[deps.ScientificTypesBase]]
+git-tree-sha1 = "a8e18eb383b5ecf1b5e6fc237eb39255044fd92b"
+uuid = "30f210dd-8aff-4c5f-94ba-8e64358c1161"
+version = "3.0.0"
+
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "0b4b7f1393cff97c33891da2a0bf69c6ed241fda"
@@ -1297,11 +2148,11 @@ git-tree-sha1 = "d7a25e439d07a17b7cdf97eecee504c50fedf5f6"
 uuid = "3cc68bcd-71a2-5612-b932-767ffbe40ab0"
 version = "0.2.1"
 
-[[deps.Shapefile]]
-deps = ["DBFTables", "GeoInterface", "RecipesBase", "Tables"]
-git-tree-sha1 = "213498e68fe72d9a62668d58d6be3bc423ebb81f"
-uuid = "8e980c4a-a4fe-5da2-b3a7-4b4b0353a2f4"
-version = "0.7.4"
+[[deps.Setfield]]
+deps = ["ConstructionBase", "Future", "MacroTools", "Requires"]
+git-tree-sha1 = "38d88503f695eb0301479bc9b0d4320b378bafe5"
+uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+version = "0.8.2"
 
 [[deps.SharedArrays]]
 deps = ["Distributed", "Mmap", "Random", "Serialization"]
@@ -1312,6 +2163,12 @@ deps = ["Dates", "Grisu"]
 git-tree-sha1 = "91eddf657aca81df9ae6ceb20b959ae5653ad1de"
 uuid = "992d4aef-0814-514b-bc4d-f2e9a6c4116f"
 version = "1.0.3"
+
+[[deps.SimpleTraits]]
+deps = ["InteractiveUtils", "MacroTools"]
+git-tree-sha1 = "5d7e3f4e11935503d3ecaf7186eac40602e7d231"
+uuid = "699a6c99-e7fa-54fc-8d76-47d257e15c1d"
+version = "0.9.4"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -1332,17 +2189,35 @@ git-tree-sha1 = "5ba658aeecaaf96923dce0da9e703bd1fe7666f9"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
 version = "2.1.4"
 
-[[deps.StackViews]]
-deps = ["OffsetArrays"]
-git-tree-sha1 = "46e589465204cd0c08b4bd97385e4fa79a0c770c"
-uuid = "cae243ae-269e-4f55-b966-ac2d0dc13c15"
-version = "0.1.1"
+[[deps.SplitApplyCombine]]
+deps = ["Dictionaries", "Indexing"]
+git-tree-sha1 = "35efd62f6f8d9142052d9c7a84e35cd1f9d2db29"
+uuid = "03a91e81-4c3e-53e1-a0a4-9c0c8f19dd66"
+version = "1.2.1"
+
+[[deps.SplittablesBase]]
+deps = ["Setfield", "Test"]
+git-tree-sha1 = "39c9f91521de844bad65049efd4f9223e7ed43f9"
+uuid = "171d559e-b47b-412a-8079-5efa626c420e"
+version = "0.1.14"
+
+[[deps.Static]]
+deps = ["IfElse"]
+git-tree-sha1 = "87e9954dfa33fd145694e42337bdd3d5b07021a6"
+uuid = "aedffcd0-7271-4cad-89d0-dc628f76c6d3"
+version = "0.6.0"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "Random", "Statistics"]
 git-tree-sha1 = "74fb527333e72ada2dd9ef77d98e4991fb185f04"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
 version = "1.4.1"
+
+[[deps.StatisticalTraits]]
+deps = ["ScientificTypesBase"]
+git-tree-sha1 = "271a7fea12d319f23d55b785c51f6876aadb9ac0"
+uuid = "64bff920-2084-43da-a3e6-9bb72801c0c9"
+version = "3.0.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
@@ -1366,11 +2241,23 @@ git-tree-sha1 = "25405d7016a47cf2bd6cd91e66f4de437fd54a07"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 version = "0.9.16"
 
+[[deps.StringDistances]]
+deps = ["Distances", "StatsAPI"]
+git-tree-sha1 = "ceeef74797d961aee825aabf71446d6aba898acb"
+uuid = "88034a9c-02f8-509d-84a9-84ec65e18404"
+version = "0.11.2"
+
 [[deps.StructArrays]]
 deps = ["Adapt", "DataAPI", "StaticArrays", "Tables"]
 git-tree-sha1 = "57617b34fa34f91d536eb265df67c2d4519b8b98"
 uuid = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 version = "0.6.5"
+
+[[deps.StructTypes]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "d24a825a95a6d98c385001212dc9020d609f2d4f"
+uuid = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
+version = "1.8.1"
 
 [[deps.SuiteSparse]]
 deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
@@ -1381,11 +2268,29 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.0"
 
+[[deps.TableDistances]]
+deps = ["CategoricalArrays", "CoDa", "Distances", "ScientificTypes", "Statistics", "StringDistances", "TableOperations", "Tables"]
+git-tree-sha1 = "0d70fd4545f63f3a4288b3301a2803128eea0f47"
+uuid = "e5d66e97-8c70-46bb-8b66-04a2d73ad782"
+version = "0.1.4"
+
+[[deps.TableOperations]]
+deps = ["SentinelArrays", "Tables", "Test"]
+git-tree-sha1 = "e383c87cf2a1dc41fa30c093b2a19877c83e1bc1"
+uuid = "ab02a1b2-a7df-11e8-156e-fb1833f50b87"
+version = "1.2.0"
+
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
 git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
 uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
 version = "1.0.1"
+
+[[deps.TableTransforms]]
+deps = ["Distributions", "LinearAlgebra", "ScientificTypes", "Statistics", "Tables", "Transducers"]
+git-tree-sha1 = "30b03c6826cbf30750945d20dbc094983fa86821"
+uuid = "0d432bfd-3ee1-4ac1-886a-39f05cc69a3e"
+version = "0.1.14"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "OrderedCollections", "TableTraits", "Test"]
@@ -1398,12 +2303,6 @@ deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
 version = "1.10.0"
 
-[[deps.TensorCore]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
-uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
-version = "0.1.1"
-
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
@@ -1414,6 +2313,18 @@ git-tree-sha1 = "216b95ea110b5972db65aa90f88d8d89dcb8851c"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.9.6"
 
+[[deps.Transducers]]
+deps = ["Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "Setfield", "SplittablesBase", "Tables"]
+git-tree-sha1 = "c76399a3bbe6f5a88faa33c8f8a65aa631d95013"
+uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+version = "0.4.73"
+
+[[deps.TypedTables]]
+deps = ["Adapt", "Dictionaries", "Indexing", "SplitApplyCombine", "Tables", "Unicode"]
+git-tree-sha1 = "f91a10d0132310a31bc4f8d0d29ce052536bd7d7"
+uuid = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
+version = "1.4.0"
+
 [[deps.URIs]]
 git-tree-sha1 = "97bbe755a53fe859669cd907f2d96aee8d2c1355"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
@@ -1422,6 +2333,11 @@ version = "1.3.0"
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+
+[[deps.UnPack]]
+git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
@@ -1432,15 +2348,40 @@ git-tree-sha1 = "53915e50200959667e78a92a418594b428dffddf"
 uuid = "1cfade01-22cf-5700-b092-accc4b62d6e1"
 version = "0.4.1"
 
+[[deps.UnicodePlots]]
+deps = ["Contour", "Crayons", "Dates", "LinearAlgebra", "MarchingCubes", "NaNMath", "SparseArrays", "StaticArrays", "StatsBase", "Unitful"]
+git-tree-sha1 = "1785494cb9484f9ab05bbc9d81a2d4de4341eb39"
+uuid = "b8865327-cd53-5732-bb35-84acbb429228"
+version = "2.9.0"
+
+[[deps.Unitful]]
+deps = ["ConstructionBase", "Dates", "LinearAlgebra", "Random"]
+git-tree-sha1 = "b649200e887a487468b71821e2644382699f1b0f"
+uuid = "1986cc42-f94f-5a68-af5c-568840ba703d"
+version = "1.11.0"
+
 [[deps.Unzip]]
 git-tree-sha1 = "34db80951901073501137bdbc3d5a8e7bbd06670"
 uuid = "41fe7b60-77ed-43a1-b4f0-825fd5a5650d"
 version = "0.1.2"
 
-[[deps.VersionParsing]]
-git-tree-sha1 = "58d6e80b4ee071f5efd07fda82cb9fbe17200868"
-uuid = "81def892-9a0e-5fdd-b105-ffc91e053289"
-version = "1.3.0"
+[[deps.Variography]]
+deps = ["Distances", "GeoStatsBase", "InteractiveUtils", "LinearAlgebra", "Meshes", "NearestNeighbors", "Optim", "Printf", "Random", "RecipesBase", "Setfield", "SpecialFunctions", "Tables", "Transducers", "Unitful"]
+git-tree-sha1 = "9c64543903f0c7baebfdefa0ad3d494722aef094"
+uuid = "04a0146e-e6df-5636-8d7f-62fa9eb0b20c"
+version = "0.14.3"
+
+[[deps.VoronoiCells]]
+deps = ["GeometryBasics", "RecipesBase", "VoronoiDelaunay"]
+git-tree-sha1 = "56366c6d0ce6c27aa0ea8a5a4909ac434f0fd33f"
+uuid = "e3e34ffb-84e9-5012-9490-92c94d0c60a4"
+version = "0.3.0"
+
+[[deps.VoronoiDelaunay]]
+deps = ["Colors", "GeometricalPredicates", "Random"]
+git-tree-sha1 = "ed19f55808fb99951d36e8616a95fc9d94045466"
+uuid = "72f80fcb-8c52-57d9-aff0-40c1a3526986"
+version = "0.4.1"
 
 [[deps.Wayland_jll]]
 deps = ["Artifacts", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg", "XML2_jll"]
@@ -1615,6 +2556,12 @@ git-tree-sha1 = "e45044cd873ded54b6a5bac0eb5c971392cf1927"
 uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
 version = "1.5.2+0"
 
+[[deps.ZygoteRules]]
+deps = ["MacroTools"]
+git-tree-sha1 = "8c1a8e4dfacb1fd631745552c8db35d0deb09ea0"
+uuid = "700de1a5-db45-46bc-99cf-38207098b444"
+version = "0.2.2"
+
 [[deps.libass_jll]]
 deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
 git-tree-sha1 = "5982a94fcba20f02f42ace44b9894ee2b140fe47"
@@ -1680,24 +2627,93 @@ version = "0.9.1+5"
 """
 
 # ╔═╡ Cell order:
-# ╠═c76ebd05-a275-4a94-8d2a-dce85fc8791d
-# ╠═494ad537-a770-490f-9fe9-5ec38a440d30
-# ╠═f9e244fa-47d5-43f4-b546-2aa6c0245d1f
-# ╠═73fe5891-da9d-4da3-8192-e9bc26bf434e
-# ╠═3039bf02-ba0b-4042-a777-73b2d9d8b666
-# ╠═273eed50-08b7-42ef-a569-4e9a94966a06
-# ╠═f6003c3c-3a8e-4862-add6-dd349e5e8906
-# ╠═9c4a40f6-436b-4ca4-ba31-383fa7af4340
-# ╠═5849bace-91d7-4da6-b283-813a9c09ea4e
-# ╠═73576310-f15d-4321-b57a-20588cc491e2
-# ╠═c31c6555-a4d0-4cb2-81d3-627fece66d94
-# ╠═292908a8-2f46-449b-8334-e2d8db14923d
-# ╠═a91994e0-490f-411b-b085-10efdf797ec4
-# ╠═f661a52a-cf08-4d55-be3a-c659d99e2d07
-# ╟─6a22d930-7e5b-47a1-b2b7-7a478eae2617
-# ╠═acd5e9b3-493f-422b-b17d-e4d8b6fca943
-# ╟─ac4bfcde-883a-4b85-a4da-15c761c54308
-# ╠═a15a3497-6d6b-452e-b742-e4b43e5decee
-# ╟─1a163b48-4281-4414-8391-561cd9cc3fbe
+# ╠═49d1ea64-9535-11ec-2eab-119fadb9083e
+# ╟─800a75e5-4f56-49e9-8d77-d62cce02ebad
+# ╟─8bb0c644-ce7b-49d8-8107-fd473f281199
+# ╟─8ef3ef24-6ab4-4e55-a6bc-6ee4ac901a53
+# ╠═4d822b90-5b31-4bb3-954b-71675e6c1dd9
+# ╟─ce7bf29b-0cd3-4e8b-95ad-a804fd0e6537
+# ╟─bf92bd9a-eb71-468e-b7c2-1b5980dd0a5c
+# ╠═08d4a328-141c-4869-88c7-09ea8ff57590
+# ╟─464a6802-c5eb-4a42-b9f4-d0dde12e24e8
+# ╟─5157cf2e-5b1c-447c-9d59-9064ecf9a771
+# ╟─31f66cb8-afa3-4ebc-9d7d-7d220997ba1f
+# ╠═8594d3ad-0e04-49d3-86e1-cdc0c8f8951c
+# ╟─0d9ba991-3d5a-4a15-84fd-a9641323e0d6
+# ╟─9d4de2c5-c0d2-468d-b694-c678c6961857
+# ╟─20886cf8-b48d-4293-b756-a894279d11f8
+# ╟─e9df25ae-f0e5-4634-8b44-f40576c7fc87
+# ╠═a0b152a2-6189-459a-9288-514c8b3d14f5
+# ╟─e38363af-1059-4c7e-bc2b-94924f34b01b
+# ╟─9d65dabb-d4d2-49c1-96f2-1f5a02bdbecf
+# ╟─4608787a-e817-4ae4-bfd7-018445586632
+# ╟─8dc094fc-f1be-4640-b97e-94ed3e87e6a6
+# ╟─f05d157c-f2a8-421f-af61-64461b82d863
+# ╟─58e457b8-ade1-43d2-8717-ea750e84a3a1
+# ╟─143beaa8-65cb-48fd-a981-92e1543c123b
+# ╟─6eb80555-636d-4072-b8a2-984a09f7f833
+# ╟─bbcc4aec-45ba-46dd-843e-65fa609928f3
+# ╟─9de45182-910c-4451-824a-0c08568c5fd0
+# ╟─25a32915-7c5e-4e7b-bb94-d1571120dbaa
+# ╟─a96bb753-6b33-4bba-9591-aaf007432c0a
+# ╠═b485d1e4-c249-47ad-8e45-707756675fdb
+# ╟─e013cb41-819d-4b8a-8381-0784167b401a
+# ╠═ffaa5a0d-d4eb-42a6-b817-f3571300257c
+# ╟─6b123eec-f8e0-46df-86d1-06c7b4c3cc89
+# ╟─90638da7-7b62-43ec-89d9-770acf945c71
+# ╟─bfef8e4e-0335-4a32-b23b-801a79e0c269
+# ╟─d117da6c-bd22-45ed-aff2-baff497858a0
+# ╟─e9627745-e40d-41e4-b569-4ed79f5686c4
+# ╠═ee5a17b7-d9d0-410f-8196-9a3d9d2010d1
+# ╟─b49eb729-7d16-4165-8c80-e901cbbf3b01
+# ╟─e36d5b6c-9a95-4570-9b4a-d3bf4f48137f
+# ╟─97efb80c-0915-42df-8199-6df2639d2d41
+# ╟─223a20c9-6a8e-4014-a909-1e4e8525d282
+# ╟─da770866-0a26-4722-98a8-cf7965e35d15
+# ╟─ebd20a55-ae35-463f-ad81-fb5dc35c8b41
+# ╟─a5be3813-81c3-4a08-85ad-cb43f317bf60
+# ╟─13046794-2b45-43f2-a4dd-484173181109
+# ╟─3a6fc1ba-95fa-446c-97be-36346ff562a6
+# ╟─9f8807ca-0ec6-43f2-83b5-8a76f8feebd5
+# ╟─a28efb16-2f08-4c69-9851-153ba4c6bf1a
+# ╟─ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
+# ╟─cc6f26f6-3db6-41b4-9e71-b6d48592c410
+# ╟─6b205e8b-f212-4668-a31e-c5af409c6e93
+# ╟─caec5908-a4c6-4bc0-8af3-6e098892e24b
+# ╟─c3d1cadb-c3d3-4452-aa8a-1f50cdee1448
+# ╟─dc647053-fdef-49c1-98e7-6292b9ac55c7
+# ╟─1f34e819-9eef-4157-8175-c90c8f92882c
+# ╟─b7cd9153-1353-4051-9197-d8137602d3fe
+# ╟─f7b688df-5589-4bdd-b431-94e770bc8a62
+# ╟─a3efc796-7604-4260-96d1-9b1c3cd60c0d
+# ╟─7f8897ad-e30f-48f0-94e2-aa8fbac7954e
+# ╟─7eb37472-8ee6-4c9b-bf27-eff4905b4e2e
+# ╟─ec822073-7e2a-44b7-8739-0e094a673066
+# ╟─501e8ada-010a-4fae-bb2d-855baa9cf923
+# ╠═65ff833e-ca70-408a-992a-128108401dc8
+# ╟─568fe19d-4a33-4e4f-b3eb-d50aaeef6eed
+# ╟─d915b138-e81d-4bca-941e-a9f15f56914d
+# ╟─1d2b44be-6ece-4ec0-9142-ea480095b5ac
+# ╟─f7128f8a-77f1-4584-9cd6-2660ebfb084b
+# ╟─85716a1c-626a-4ac7-a0d9-37cf0f658f79
+# ╟─3e737332-78f9-4a93-931c-3b4bd2a1c195
+# ╟─3216b2cb-976e-40cd-aee4-69af2ce5cb31
+# ╟─4bc5a61d-12e2-4c55-a9fa-3af21cf55f7e
+# ╟─0c400d13-dc44-4bdd-b627-2ad551109cf9
+# ╟─c4aa4c0a-6ad0-418d-8c76-56d2a840905c
+# ╟─73c36e85-ad6f-42e2-a5c0-5fc10c8db7ce
+# ╟─54754fac-ceab-47e3-ac6b-d8f837078072
+# ╠═75bbca6f-6410-4a93-854c-3ea030f94217
+# ╠═85e138e8-fd2f-4239-9b41-2aa6cb9d8ed2
+# ╠═bacb917d-8d9a-4081-8039-966849ade9d6
+# ╟─e1bc6d5a-99c8-4d83-aad6-491b5ededfd0
+# ╟─1cc473f5-6ac6-4876-af22-987768f2ad16
+# ╟─d8512b16-84f5-4b0a-a7de-3bffb3367242
+# ╟─9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
+# ╠═78093bf4-7a86-4d73-95ee-47683ef926fa
+# ╟─e9f57d8a-e13a-472d-a567-790cab0e7c1b
+# ╠═5bac64d2-36ed-493c-b4a5-527fa5c336be
+# ╠═03905524-ba7d-4ea5-8c3e-0539c29d8668
+# ╠═3fd53180-5822-49a2-82f2-2a9e974ff239
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

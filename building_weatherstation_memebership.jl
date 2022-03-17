@@ -11,6 +11,7 @@ begin
 	using Dates
 	using CSV
 	using GeoDataFrames
+	using GeoFormatTypes
 	using Statistics
 	using GeoJSON
 	using DataFrames
@@ -26,30 +27,27 @@ begin
 	using Lasso
 end
 
-# ╔═╡ 790ec525-9490-4013-8c12-bf60370da7dc
-using GLMNet
-
-# ╔═╡ 8f8184c2-6afe-4744-8ad5-ceb9f16f9565
-theme(:default)
-
-# ╔═╡ 03209473-9dd0-4614-b58a-34d39abec762
-month_lookup = Dict{String, Integer}(
-	"Jan" => 1,
-	"Feb" => 2,
-	"Mar" => 3,
-	"Apr" => 4,
-	"May" => 5,
-	"Jun" => 6,
-	"Jul" => 7,
-	"Aug" => 8,
-	"Sep" => 9,
-	"Oct" => 10,
-	"Nov" => 11,
-	"Dec" => 12
-)
+# ╔═╡ d35d9541-551c-43d7-87e5-4067f300d823
+md"""
+## The summary of the energy data and some initial manipulations.
+"""
 
 # ╔═╡ 3d6b580e-7530-4336-a0b2-44440c8f27e1
-begin 
+begin
+	month_lookup = Dict{String, Integer}(
+		"Jan" => 1,
+		"Feb" => 2,
+		"Mar" => 3,
+		"Apr" => 4,
+		"May" => 5,
+		"Jun" => 6,
+		"Jul" => 7,
+		"Aug" => 8,
+		"Sep" => 9,
+		"Oct" => 10,
+		"Nov" => 11,
+		"Dec" => 12
+	);
 	energy = GeoDataFrames.read("./data/nyc/energy.geojson")
 	@chain energy begin
 		subset!(:cnstrct_yr => ByRow(!=("")))
@@ -69,6 +67,11 @@ begin
 	end
 end
 
+# ╔═╡ ec930ad3-6f03-4210-9404-c715cd7b980f
+md"""
+Some summary statistics:
+"""
+
 # ╔═╡ fb226326-7d92-40f4-838e-34a34469e725
 begin
 	description = describe(energy)
@@ -77,17 +80,19 @@ end
 
 # ╔═╡ fbabc8b6-510c-4de3-84f8-972bf8c291f5
 md"""
-Going to check which service region each of the energy points are within
+Going to check which service region each of the energy points are within. The location of each of the buildings is provided here:
 """
 
 # ╔═╡ 06cf280f-d4db-4cdc-b0fd-6453e054db3a
 Plots.plot(energy.geom[1:800], color="white")
 
 # ╔═╡ 1f23801b-7482-4c72-b872-0f2276109aa4
-sample_energy = first(energy, 2000)
+sample_energy = first(energy, 2000);
 
-# ╔═╡ 39d17e97-7434-448c-baf7-4e95ee4a123d
-1:2:20
+# ╔═╡ bfe4e726-7066-412f-adb7-dc435ffebbd5
+md"""
+## Consumption patterns between the age of buildings and their electricity consumption
+"""
 
 # ╔═╡ 18d39491-45b8-42fd-8d2e-136e8331f70e
 Gadfly.plot(
@@ -103,8 +108,11 @@ Gadfly.plot(
 		point_size=0.6mm,
 		alphas=[0.5]
 	),
-	Gadfly.Scale.x_log,
-	Gadfly.Scale.y_log,
+	Gadfly.Scale.x_log(),
+	Gadfly.Scale.y_log(),
+	Guide.title("Log Relationship between Electricity and Gas"),
+	Guide.xlabel("Daily Gas"),
+	Guide.ylabel("Daily Electricity")
 )
 
 # ╔═╡ 79de065e-0cf8-4e3a-b17e-b5d0109426f0
@@ -114,15 +122,17 @@ Gadfly.plot(
 	y=:daily_electric,
 	color=:date,
 	Geom.point,
-	Geom.abline(color="red", style=:dash),
 	Theme(
 		default_color="white",
 		discrete_highlight_color=c->"black",
-		point_size=0.6mm,
-		alphas=[0.5]
+		point_size=0.8mm,
+		alphas=[0.3]
 	),
 	# Gadfly.Scale.x_log,
 	Gadfly.Scale.y_log,
+	Guide.title("Electricity Consumption and Year of Construction"),
+	Guide.xlabel("Year"),
+	Guide.ylabel("Daily Electricity")
 )
 
 # ╔═╡ 3f9a8e70-6f17-47f4-98b8-ba21ae760eb5
@@ -131,7 +141,7 @@ monthly_averages = DataFrames.combine(
 		energy, [:date]
 	), [:daily_gas,:daily_electric] .=> mean,
 	renamecols=false
-)
+);
 
 # ╔═╡ 0488b4b0-2115-4436-816c-fc54b11efb4c
 Gadfly.plot(
@@ -141,20 +151,22 @@ Gadfly.plot(
 	color=:date,
 	Geom.point,
 	Geom.line,
-	Theme()
+	Gadfly.Scale.x_continuous(minvalue=0.0, maxvalue=2.5e4),
+	Gadfly.Scale.y_continuous(minvalue=0.0, maxvalue=2.5e4),
+	Guide.Title("Average Daily Electric vs. Gas")
 )
 
 # ╔═╡ 9a4bf535-b25d-487e-add6-83a89429cd48
 md"""
-But what's more important for me is the average energy per day, as each month has different numbers of days
+What's interesting about this is that it indicates a more significant fluctuation for gas consumption compared to electric, meaning we might get more favorable results for prediction from a **combination** of total energy or simply the prediction of gas consumption.
 """
 
 # ╔═╡ 7238ce1c-d431-400d-8636-2a5162d376d2
-unique_dates = unique(sample_energy.date_string)
+unique_dates = unique(sample_energy.date_string);
 
 # ╔═╡ 85a79162-f3bc-413c-a8e4-2c230c446341
 md"""
-##### Here's the service areas we can check
+##### The previous analysis identified service areas - we want to find a home for each building in a service area
 """
 
 # ╔═╡ dd66136f-5f7b-4be2-831e-3fede61e6811
@@ -162,21 +174,21 @@ service_areas = GeoDataFrames.read("./data/nyc/weather/monthly/station_service_a
 
 # ╔═╡ acd4220f-546f-454c-a612-4e53c3f472ee
 council_areas =
-	GeoDataFrames.read("./data/nyc/footprints/council_districts.geojson")
+	GeoDataFrames.read("./data/nyc/footprints/council_districts.geojson");
 
 # ╔═╡ e3e8b4ba-518f-4986-9685-80a300e0612b
 md"""
-##### Looking at how the council regions are intersecting with the weather districts as defined by the voronoi diagram
+###### We can see how the "weather service areas" overlap with different council regions
 """
 
 # ╔═╡ f484d923-85c1-48a1-a406-1fdcf7fb94e5
 begin
-	b = Plots.plot(
+	council_plot = Plots.plot(
 		council_areas.geom,
 		color="transparent",
 		dpi=700
 	)
-	a = Plots.plot!(b,
+	a = Plots.plot(council_plot,
 		service_areas.geom,
 		linecolor="gray",
 		color=:transparent
@@ -198,17 +210,13 @@ md"""
 ##### Here's an example of what the typical termperature profile might look like over the course of a year for a single weather region
 """
 
-# ╔═╡ 286a668d-68d6-4259-a266-7416dd6e4221
-begin
-	unique_weather_stations = unique(weather.STATION);
-	unique_property_ids = unique(energy[!,:id]);
-end
-
 # ╔═╡ 582aa910-fe59-48de-8362-a33dec8b91ab
 typical_profiles = DataFrames.combine(DataFrames.groupby(energy, :date), [:daily_gas, :daily_electric] .=> mean, renamecols=false);
 
 # ╔═╡ 0a819596-2927-4194-928d-8bba8fa7f6d6
 begin
+	unique_weather_stations = unique(weather.STATION);
+	unique_property_ids = unique(energy[!,:id]);
 	typical_gas = layer(
 		typical_profiles,
 		x=:date, 
@@ -236,9 +244,6 @@ md"""
 ##### Now to map each of the buildings to a service areas
 """
 
-# ╔═╡ 5b52690b-de5c-4a89-b9fc-96dedb655cac
-128e3 / 12
-
 # ╔═╡ e80c7cc5-521c-4163-991c-4716be698378
 begin
 	unique_energyid_df = DataFrames.combine(DataFrames.groupby(energy, :id), first)
@@ -254,7 +259,7 @@ begin
 	end
 	energy[!,:service_zone] = [ building_service_mapping[id] for id in energy[!,:id]]
 	energy[!,:station_id] = string.(energy.service_zone, "_", energy.month)
-	energy
+	first(select(energy, [:service_zone, :id], :), 3)
 end
 
 # ╔═╡ 9a2d6412-f84f-48be-8d5d-2e7120818778
@@ -270,194 +275,41 @@ begin
 
 	small_energy[!,:service_zone_color] = [ service_color_map[id] for id in small_energy[!,:service_zone]];
 	first(small_energy, 3)
-end
+end;
+
+# ╔═╡ 9d83b202-d6f8-415d-ad1b-4d505a1e7c54
+md"""
+#### And we can visualize how it looks on the map
+"""
 
 # ╔═╡ 3c06731c-cf60-4850-9b98-15c299ca9a7e
 begin
-	Plots.plot(
+	weather_membership_plot = Plots.plot(
 		small_energy.geom,
 		palette=small_energy.service_zone_color,
-		markersize=3.4,
-		markerstrokewidth=0.5
+		markersize=2.4,
+		markerstrokewidth=0.3,
+		alpha=0.7,
+		dpi=400
+	)
+	Plots.plot!(
+		weather_membership_plot,
+		council_areas.geom,
+		color="transparent",
+		markerstrokealpha=0.1
 	)
 end
 
-# ╔═╡ 20e99dd6-323b-4970-8ae4-d63e1e1fd108
-md"""
-We want to get unique ids for each station and month
-"""
-
-# ╔═╡ e5c564cc-c0eb-495a-bd5e-d83681aefcaa
-energy_complete = DataFrames.leftjoin(energy, weather, makeunique=true, on = :station_id => :id)
-
-# ╔═╡ 5ab6ba56-9bf6-48f7-a44c-78b93ac9e34c
-DataFrames.combine(DataFrames.groupby(energy_complete, :date), 
-	[:daily_electric] .=> mean
-)
-
-# ╔═╡ 50fa8b1b-cfdf-4ebb-9fe4-cad95ee2b0d6
-# small_energy = energy_complete[StatsBase.shuffle(1:nrow(energy_complete))[1:end], :]
-# small_energy = energy_complete
-
-# ╔═╡ 14040753-b1ce-4e49-8543-874eba8fc546
-# begin
-# a = Gadfly.plot(
-# 	small_energy,
-# 	x=:date,
-# 	y=:daily_gas,
-# 	Gadfly.Scale.y_log,
-# )
-
-# b = Gadfly.plot(
-# 	small_energy,
-# 	x=:date,
-# 	y=:daily_electric,
-# 	Gadfly.Scale.y_log,
-# )
-# hstack(a,b)
-# end
-
-# ╔═╡ 30a43972-837f-4c75-a9b9-e626368f2d89
-function norm(x)
-	(x .- mean(x)) / var(x)
-end
-
-# ╔═╡ 835cd759-3f49-4c55-80a0-7febf0af637d
-small_energy.daily_gas
-
-# ╔═╡ 536385cb-a232-4d47-8d53-4c599f28682a
-stats_terms = 	[
-		"electricity_kbtu",
-		"gas_kbtu",
-		"heightroof",
-		"cnstrct_yr",
-		"groundelev",
-		"AWND",
-		"PGTM",
-		"PRCP",
-		"SNOW",
-		"SNWD",
-		"TAVG",
-		"TMAX",
-		"TMIN",
-		"TOBS",
-		"WDF2",
-		"WDF5",
-		"WSF2",
-		"WSF5",
-		"WT01",
-		"WT02",
-		"WT03",
-		"WT04",
-		"WT05",
-		"WT06",
-		"WT08",
-		"WT09"
-	]
-
-# ╔═╡ a1a750fa-38bc-4f22-95e3-d5083bc7a3bf
-energy_stats = transform(
-	small_energy, 
-	stats_terms.=> norm,
-	renamecols=false
-)
-
-# ╔═╡ 523cd48d-be91-406a-8f80-94c5e42229f2
-
-
-# ╔═╡ 0766da93-3fdc-4938-bdf5-efa238fb5f21
-unique_places = unique(small_energy, :id)
-
-# ╔═╡ a7ae3a90-e4e4-4dfb-a117-26a59ec6a94e
-t =  unique_places.geom[1]
-
-# ╔═╡ 385c9dce-a9e9-411b-b05d-d4e3cd0baa70
-lon
-
-# ╔═╡ f4428a2e-ed48-4b29-88b3-9733ef3046ec
-training_energy = dropmissing(small_energy[
-	:,
-	Not([
-		:date,
-		:geom,
-		:id,
-		:date_string,
-		:electricity_kbtu,
-		:gas_kbtu,
-		:bbl,
-		:bin,
-		:month,
-		:year,
-		:month_days,
-		:service_zone,
-		:station_id,
-		:STATION,
-		:month_1,
-		:cnstrct_yr
-	])
-])
-
-# ╔═╡ 67b0d7fb-4ff4-4f7d-a62a-c1866a464e07
-train_mat = Matrix(training_energy)
-
-# ╔═╡ 322480ae-27df-498f-bf1d-c1b74f5a85e2
+# ╔═╡ dd192b2d-93a5-4439-ba65-3df48ce027f2
 begin
-	X = train_mat[:,3:end]
-	y = train_mat[:,1]
-end
+	energy_complete = DataFrames.leftjoin(energy, weather, makeunique=true, on = :station_id => :id)
+	energy_complete[!,:STATION] = convert.(String, energy_complete.STATION)
+	energy_complete[!,:id] = convert.(Int64, energy_complete.id)
+	select!(energy_complete, Not([:date, :date_string]))
+end;
 
-# ╔═╡ a4bb7641-3396-43da-b119-7fed3500aa71
-names(training_energy)
-
-# ╔═╡ 237d71ee-e676-4cf9-8acb-9a7ec9ad72cc
-maximum(training_energy.daily_electric)
-
-# ╔═╡ 5014f855-6e3c-4daf-a4e9-58337788ed6e
-first(training_energy, 5)
-
-# ╔═╡ e708ecd2-8433-41a1-a1e7-e45f49eb3c4d
-# begin
-# 	fm = @formula(daily_gas ~ names(training_energy))
-# 	linear_reg = lm(fm, training_energy)
-# end
-
-# ╔═╡ aada4a48-92f7-4add-be97-865a39174e36
-
-
-# ╔═╡ 08d507db-a4aa-48bd-a957-18482cc36c45
-
-
-# ╔═╡ 87621e20-c005-432a-922d-99506a27a601
-begin
-	select(energy_stats, Not(r"^WT*"))
-	select(energy_stats, Not(r"^month"))
-end
-
-# ╔═╡ e4511dcb-f4c1-4b44-a5ba-fa23e6de965e
-path = glmnet(X, y)
-
-# ╔═╡ d761041f-c5b8-4cc1-a866-6ebc670e452e
-StatsBase.fit(LassoPath, X, y)
-
-# ╔═╡ 0278493d-5053-43f9-bb9c-0e13c1c65506
-
-
-# ╔═╡ 7a50af43-b950-45e6-a757-851a1c42d1f8
-StatsBase.cor(energy_stats.daily_electric_norm, energy_stats.daily_gas_norm)
-
-# ╔═╡ 0bfd3f37-6a5b-4e81-8fb0-4e665f91d8e3
-rightjoin(unique_property_ids, energy, on="Property Id")
-
-# ╔═╡ 83b7bd88-a872-4e9f-a0ac-14cd6ac9be28
-length(unique_property_ids) * nrow(service_areas)
-
-# ╔═╡ a82ac52b-6810-4835-b62c-262a1b6545bf
-for id ∈ unique_property_ids
-	@show id
-end
-
-# ╔═╡ 7facbec1-ad86-4831-b2ff-fb73d5aefd7e
-
+# ╔═╡ 05601352-921b-4978-bd59-949f347ce54f
+GeoDataFrames.write("./data/nyc/energy_weather.geojson", energy_complete;  geom_column=:geom, crs=GeoFormatTypes.EPSG(4326))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -468,9 +320,9 @@ Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
-GLMNet = "8d5ece8b-de18-5317-b113-243142960cc6"
 Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004"
 GeoDataFrames = "62cb38b5-d8d2-4862-a48e-6a340996859f"
+GeoFormatTypes = "68eda718-8dee-11e9-39e7-89f7f65f511f"
 GeoJSON = "61d90e0f-e114-555e-ac52-39dfb47a3ef9"
 GeoStats = "dcc97b0b-8ce5-5539-9008-bb190f959ef6"
 Lasso = "b4fcebef-c861-5a0f-a7e2-ba9dc32b180a"
@@ -487,9 +339,9 @@ CSV = "~0.10.2"
 Chain = "~0.4.10"
 ColorSchemes = "~3.17.1"
 DataFrames = "~1.3.2"
-GLMNet = "~0.7.0"
 Gadfly = "~1.3.4"
 GeoDataFrames = "~0.2.0"
+GeoFormatTypes = "~0.3.0"
 GeoJSON = "~0.5.1"
 GeoStats = "~0.31.2"
 Lasso = "~0.6.3"
@@ -506,7 +358,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-DEV.53"
 manifest_format = "2.0"
-project_hash = "e4fc4bab12219f4aac2fbea6820b626ed102675c"
+project_hash = "fc9753c1c8c44746174412a507cef6929b44baeb"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -1003,12 +855,6 @@ git-tree-sha1 = "fb764dacfa30f948d52a6a4269ae293a479bbc62"
 uuid = "38e38edf-8417-5370-95a0-9cbb8c7f171a"
 version = "1.6.1"
 
-[[deps.GLMNet]]
-deps = ["DataFrames", "Distributed", "Distributions", "Printf", "Random", "SparseArrays", "StatsBase", "glmnet_jll"]
-git-tree-sha1 = "49ef90cd140f8a99a81338f1e08e8ebc18837a63"
-uuid = "8d5ece8b-de18-5317-b113-243142960cc6"
-version = "0.7.0"
-
 [[deps.GR]]
 deps = ["Base64", "DelimitedFiles", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Pkg", "Printf", "Random", "RelocatableFolders", "Serialization", "Sockets", "Test", "UUIDs"]
 git-tree-sha1 = "9f836fb62492f4b0f0d3b06f55983f2704ed0883"
@@ -1301,6 +1147,12 @@ git-tree-sha1 = "f6250b16881adf048549549fba48b1161acdac8c"
 uuid = "c1c5ebd0-6772-5130-a774-d5fcae4a789d"
 version = "3.100.1+0"
 
+[[deps.LERC_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "bf36f528eec6634efc60d7ec062008f171071434"
+uuid = "88015f11-f218-50d7-93a8-a6af411a945d"
+version = "3.0.0+1"
+
 [[deps.LZO_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "e5b909bcf985c5e2605737d2ce278ed791b89be6"
@@ -1392,10 +1244,10 @@ uuid = "4b2f31a3-9ecc-558c-b454-b3730dcb73e9"
 version = "2.35.0+0"
 
 [[deps.Libtiff_jll]]
-deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Pkg", "Zlib_jll", "Zstd_jll"]
-git-tree-sha1 = "340e257aada13f95f98ee352d316c3bed37c8ab9"
+deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "LERC_jll", "Libdl", "Pkg", "Zlib_jll", "Zstd_jll"]
+git-tree-sha1 = "c9551dd26e31ab17b86cbd00c2ede019c08758eb"
 uuid = "89763e89-9b03-5906-acba-b20f662cd828"
-version = "4.3.0+0"
+version = "4.3.0+1"
 
 [[deps.Libuuid_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -2304,12 +2156,6 @@ git-tree-sha1 = "8c1a8e4dfacb1fd631745552c8db35d0deb09ea0"
 uuid = "700de1a5-db45-46bc-99cf-38207098b444"
 version = "0.2.2"
 
-[[deps.glmnet_jll]]
-deps = ["Libdl", "Pkg"]
-git-tree-sha1 = "a88d1783391cea1503e092e8a346751ec5e3b5d1"
-uuid = "78c6b45d-5eaf-5d68-bcfb-a5a2cb06c27f"
-version = "5.0.0+0"
-
 [[deps.libass_jll]]
 deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
 git-tree-sha1 = "5982a94fcba20f02f42ace44b9894ee2b140fe47"
@@ -2376,68 +2222,37 @@ version = "0.9.1+5"
 
 # ╔═╡ Cell order:
 # ╠═9ca0e34a-95cf-11ec-1e52-8d4764b36bf2
-# ╠═8f8184c2-6afe-4744-8ad5-ceb9f16f9565
-# ╟─03209473-9dd0-4614-b58a-34d39abec762
+# ╟─d35d9541-551c-43d7-87e5-4067f300d823
 # ╠═3d6b580e-7530-4336-a0b2-44440c8f27e1
+# ╟─ec930ad3-6f03-4210-9404-c715cd7b980f
 # ╠═fb226326-7d92-40f4-838e-34a34469e725
 # ╟─fbabc8b6-510c-4de3-84f8-972bf8c291f5
-# ╠═06cf280f-d4db-4cdc-b0fd-6453e054db3a
-# ╠═1f23801b-7482-4c72-b872-0f2276109aa4
-# ╠═39d17e97-7434-448c-baf7-4e95ee4a123d
+# ╟─06cf280f-d4db-4cdc-b0fd-6453e054db3a
+# ╟─1f23801b-7482-4c72-b872-0f2276109aa4
+# ╟─bfe4e726-7066-412f-adb7-dc435ffebbd5
 # ╠═18d39491-45b8-42fd-8d2e-136e8331f70e
-# ╠═79de065e-0cf8-4e3a-b17e-b5d0109426f0
-# ╠═3f9a8e70-6f17-47f4-98b8-ba21ae760eb5
-# ╠═0488b4b0-2115-4436-816c-fc54b11efb4c
+# ╟─79de065e-0cf8-4e3a-b17e-b5d0109426f0
+# ╟─3f9a8e70-6f17-47f4-98b8-ba21ae760eb5
+# ╟─0488b4b0-2115-4436-816c-fc54b11efb4c
 # ╟─9a4bf535-b25d-487e-add6-83a89429cd48
-# ╠═7238ce1c-d431-400d-8636-2a5162d376d2
+# ╟─7238ce1c-d431-400d-8636-2a5162d376d2
 # ╟─85a79162-f3bc-413c-a8e4-2c230c446341
-# ╟─dd66136f-5f7b-4be2-831e-3fede61e6811
-# ╟─acd4220f-546f-454c-a612-4e53c3f472ee
+# ╠═dd66136f-5f7b-4be2-831e-3fede61e6811
+# ╠═acd4220f-546f-454c-a612-4e53c3f472ee
 # ╟─e3e8b4ba-518f-4986-9685-80a300e0612b
 # ╟─f484d923-85c1-48a1-a406-1fdcf7fb94e5
-# ╟─98cd8e57-be81-4a1f-b09a-bf2ff4ae91a7
-# ╟─4bf2d732-2472-4866-84dc-a481c7337a55
-# ╟─ac8e7c71-f791-4402-b87e-b7e01809637e
+# ╠═98cd8e57-be81-4a1f-b09a-bf2ff4ae91a7
+# ╠═4bf2d732-2472-4866-84dc-a481c7337a55
+# ╠═ac8e7c71-f791-4402-b87e-b7e01809637e
 # ╟─a01db550-be01-4c55-b807-39973129253c
-# ╟─286a668d-68d6-4259-a266-7416dd6e4221
 # ╟─582aa910-fe59-48de-8362-a33dec8b91ab
-# ╠═0a819596-2927-4194-928d-8bba8fa7f6d6
+# ╟─0a819596-2927-4194-928d-8bba8fa7f6d6
 # ╟─0634b95a-cd07-4b62-8dbc-c406394e89a8
-# ╠═5b52690b-de5c-4a89-b9fc-96dedb655cac
 # ╠═e80c7cc5-521c-4163-991c-4716be698378
 # ╠═9a2d6412-f84f-48be-8d5d-2e7120818778
-# ╟─3c06731c-cf60-4850-9b98-15c299ca9a7e
-# ╟─20e99dd6-323b-4970-8ae4-d63e1e1fd108
-# ╠═e5c564cc-c0eb-495a-bd5e-d83681aefcaa
-# ╠═5ab6ba56-9bf6-48f7-a44c-78b93ac9e34c
-# ╠═50fa8b1b-cfdf-4ebb-9fe4-cad95ee2b0d6
-# ╠═14040753-b1ce-4e49-8543-874eba8fc546
-# ╠═30a43972-837f-4c75-a9b9-e626368f2d89
-# ╠═835cd759-3f49-4c55-80a0-7febf0af637d
-# ╟─536385cb-a232-4d47-8d53-4c599f28682a
-# ╠═a1a750fa-38bc-4f22-95e3-d5083bc7a3bf
-# ╠═523cd48d-be91-406a-8f80-94c5e42229f2
-# ╠═0766da93-3fdc-4938-bdf5-efa238fb5f21
-# ╠═a7ae3a90-e4e4-4dfb-a117-26a59ec6a94e
-# ╠═385c9dce-a9e9-411b-b05d-d4e3cd0baa70
-# ╠═f4428a2e-ed48-4b29-88b3-9733ef3046ec
-# ╠═67b0d7fb-4ff4-4f7d-a62a-c1866a464e07
-# ╠═322480ae-27df-498f-bf1d-c1b74f5a85e2
-# ╠═a4bb7641-3396-43da-b119-7fed3500aa71
-# ╠═237d71ee-e676-4cf9-8acb-9a7ec9ad72cc
-# ╠═5014f855-6e3c-4daf-a4e9-58337788ed6e
-# ╠═e708ecd2-8433-41a1-a1e7-e45f49eb3c4d
-# ╠═aada4a48-92f7-4add-be97-865a39174e36
-# ╠═08d507db-a4aa-48bd-a957-18482cc36c45
-# ╠═87621e20-c005-432a-922d-99506a27a601
-# ╠═790ec525-9490-4013-8c12-bf60370da7dc
-# ╠═e4511dcb-f4c1-4b44-a5ba-fa23e6de965e
-# ╠═d761041f-c5b8-4cc1-a866-6ebc670e452e
-# ╠═0278493d-5053-43f9-bb9c-0e13c1c65506
-# ╠═7a50af43-b950-45e6-a757-851a1c42d1f8
-# ╠═0bfd3f37-6a5b-4e81-8fb0-4e665f91d8e3
-# ╠═83b7bd88-a872-4e9f-a0ac-14cd6ac9be28
-# ╠═a82ac52b-6810-4835-b62c-262a1b6545bf
-# ╠═7facbec1-ad86-4831-b2ff-fb73d5aefd7e
+# ╟─9d83b202-d6f8-415d-ad1b-4d505a1e7c54
+# ╠═3c06731c-cf60-4850-9b98-15c299ca9a7e
+# ╠═dd192b2d-93a5-4439-ba65-3df48ce027f2
+# ╟─05601352-921b-4978-bd59-949f347ce54f
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
