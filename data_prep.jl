@@ -24,6 +24,7 @@ begin
 	using GeoStats
 	using Missings
 	using LazySets
+	using ProgressMeter
 	using ColorSchemes: flag
 	
 	color_scheme = cgrad(:matter, 9, categorical = true)
@@ -44,6 +45,74 @@ This file runs the general trajectory for processing historical weather data fro
 5. Drop the graphing dependencies for council footprints (it's custom for New York) potentially again using multiple dispatch
 """
 
+# ╔═╡ e2e418ad-9fcf-4c8b-b20f-383efe07f094
+md"""
+All of the filename paths:
+"""
+
+# ╔═╡ 283fd0e7-ecfe-476c-9f9c-915d2d9db529
+toyset = true
+
+# ╔═╡ e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
+begin
+	data_directory = joinpath(".","data","nyc")
+	weather_directory = joinpath(data_directory, "weather")
+	footprints_directory = joinpath(data_directory, "footprints")
+	energy_directory = joinpath(data_directory, "energy")
+	photos_directory = joinpath(data_directory, "photos")
+
+	weather_path = joinpath(
+		weather_directory,
+		"request_results.csv"
+	)
+	council_footprints_path = joinpath(
+		footprints_directory, 
+		"council_districts.geojson"
+	)
+	building_footprints_path = joinpath(
+		footprints_directory, 
+		"building_footprints.geojson"
+	)
+	monthly_energy_path = joinpath(
+		energy_directory, 
+		"monthly",
+		"Local_Law_84_2021__Monthly_Data_for_Calendar_Year_2020_.csv"
+	)
+	annual_energy_path = joinpath(
+		energy_directory, 
+		"annually", "Energy_and_Water_Data_Disclosure_for_Local_Law_84_2021__Data_for_Calendar_Year_2020_.csv"
+	)
+
+	### There are two versions of this data - one is for the toyset, which will just look at one council region (2) of New York, the other has data for the entire region. This is to reduce processing time when building algorithms, but be sure to switch it back to the full data before running the entire algorithm
+
+	if toyset
+		microsoft_building_footprints_path = joinpath(
+			footprints_directory,
+			"NewYorkCity.geojson"
+		)
+		# For the full footprints list of New York State
+		# microsoft_building_footprints_path = joinpath(
+		# 	footprints_directory,
+		# 	"NewYork.geojson"
+		# )
+		streetview_metadata_path = joinpath(
+			photos_directory, 
+			"streetview",
+			"manhattan_metadata_nodes.tsv"
+		)
+	else
+		microsoft_building_footprints_path = joinpath(
+			footprints_directory,
+			"NewYork.geojson"
+		)
+		streetview_metadata_path = joinpath(
+			photos_directory, 
+			"streetview",
+			"manhattan_metadata_nodes.tsv"
+		)
+	end
+end;
+
 # ╔═╡ 8ef3ef24-6ab4-4e55-a6bc-6ee4ac901a53
 md"""
 ## 1. Weather Data Loading
@@ -51,20 +120,18 @@ md"""
 
 # ╔═╡ 4d822b90-5b31-4bb3-954b-71675e6c1dd9
 begin
-	weather = CSV.File("./data/nyc/weather/request_results.csv") |> DataFrame
+	weather = CSV.File(weather_path) |> DataFrame
 	unique_stations = DataFrames.combine(DataFrames.groupby(weather, :STATION), first)
 	locations = ArchGDAL.createpoint.(unique_stations.LONGITUDE,unique_stations.LATITUDE)
 	locations_tuple = [zip(unique_stations.LONGITUDE, unique_stations.LATITUDE)...];
 
-	council_footprints = GeoDataFrames.read("./data/nyc/footprints/council_districts.geojson")
+	council_footprints = GeoDataFrames.read(council_footprints_path)
 	council_footprints.coun_dist = Base.parse.(Int64, council_footprints.coun_dist)
 	council_footprints.shape_area = Base.parse.(Float64, council_footprints.shape_area)
 	council_footprints.shape_leng = Base.parse.(Float64, council_footprints.shape_leng)
 	council = council_footprints
-end;
-
-# ╔═╡ ce7bf29b-0cd3-4e8b-95ad-a804fd0e6537
-weather
+	weather
+end
 
 # ╔═╡ bf92bd9a-eb71-468e-b7c2-1b5980dd0a5c
 md"""
@@ -302,7 +369,7 @@ md"""
 
 # ╔═╡ e36d5b6c-9a95-4570-9b4a-d3bf4f48137f
 begin
-	footprints = GeoDataFrames.read("./data/nyc/footprints/building_footprints.geojson")
+	footprints = GeoDataFrames.read(building_footprints_path)
 	rename!(footprints, "base_bbl" => "bbl")
 	filter!(x -> tryparse(Float64, x.heightroof) !== nothing, footprints)
 	filter!(x -> tryparse(Float64, x.groundelev) !== nothing, footprints)
@@ -345,7 +412,7 @@ md"""
 
 # ╔═╡ a5be3813-81c3-4a08-85ad-cb43f317bf60
 begin
-	monthly_file = CSV.File("./data/nyc/energy/monthly/Local_Law_84_2021__Monthly_Data_for_Calendar_Year_2020_.csv", missingstring="Not Available")
+	monthly_file = CSV.File(monthly_energy_path, missingstring="Not Available")
 	nyc_monthly_energy_2020 = DataFrame(monthly_file)
 	filter!(x -> x["Parent Property Name"] == "Not Applicable: Standalone Property", 	nyc_monthly_energy_2020)
 	dropmissing!(nyc_monthly_energy_2020)
@@ -373,7 +440,7 @@ The annualized energy consumption has information for the **BBL**, **BIN**, and 
 
 # ╔═╡ 9f8807ca-0ec6-43f2-83b5-8a76f8feebd5
 begin
-	annual_file = CSV.File("./data/nyc/energy/annually/Energy_and_Water_Data_Disclosure_for_Local_Law_84_2021__Data_for_Calendar_Year_2020_.csv", missingstring="Not Available")
+	annual_file = CSV.File(annual_energy_path, missingstring="Not Available")
 	nyc_annual_energy_2020 = DataFrame(annual_file)
 	# Only use single buildings
 	filter!(x -> x["Number of Buildings"] < 2, nyc_annual_energy_2020)
@@ -505,8 +572,7 @@ md"""
 
 # ╔═╡ 7f8897ad-e30f-48f0-94e2-aa8fbac7954e
 begin
-	original_streetview_set = CSV.read("/Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/photos/streetview/manhattan_metadata_nodes.tsv", DataFrame);
-		
+	original_streetview_set = CSV.read(streetview_metadata_path, DataFrame);
 	streetview = @chain original_streetview_set begin
 	dropmissing(["pano_id", "coords.lat", "coords.lng"])
 	end
@@ -718,9 +784,141 @@ end
 # ╔═╡ d8512b16-84f5-4b0a-a7de-3bffb3367242
 
 
+# ╔═╡ 05d62c11-9bbf-4b4d-bdf0-b43685e33f1c
+md"""
+## 7. Assigning the Microsoft building footprints to each building
+"""
+
+# ╔═╡ 56ac5f27-682a-42f7-99ea-7882f29506fb
+md"""
+Microsoft foorprints overview - **TODO:** find a way to first sort this by the start of the date range so that we're using the most up to date geometries first
+"""
+
+# ╔═╡ 18cbefa1-d451-47a7-9e75-b00bbfa2f78a
+# begin
+# 	microsoft_footprints = GeoDataFrames.read(microsoft_building_footprints_path)
+# 	microsoft_new_york_city = @chain microsoft_footprints begin
+# 		sort(:release, rev=true)
+# 		filter(x -> GeoDataFrames.contains(hull_buffer, x.geom), _)
+# 	end
+# 	GeoDataFrames.write("./data/nyc/footprints/NewYorkCity.geojson", microsoft_new_york_city)
+# end
+
+# ╔═╡ ee1f546d-2755-48e2-b18c-17e7d1c55298
+begin
+	microsoft_footprints = GeoDataFrames.read(microsoft_building_footprints_path)
+	microsoft_new_york_city = @chain microsoft_footprints begin
+		sort(:release, rev=true)
+	end
+end
+
+# ╔═╡ aa4bd689-a3b4-4fea-9242-1a43ce5bbb17
+md"""
+Some of the metadata for the unique kinds of reporting by Microsoft
+"""
+
+# ╔═╡ 2d1114cd-0d7e-470c-8313-a6229367c7c9
+unique(microsoft_new_york_city, :capture_dates_range)
+
+# ╔═╡ 4718a5e0-c28e-4ea2-8e3c-d651740ea344
+md"""
+We can also just look at the select region of interest for our testing set to see what those buildings might look like
+"""
+
+# ╔═╡ a87ee29b-a9bb-472d-a9a3-51224e0a1bdd
+md"""
+Next step is to parse through every building in the dataset to see where it falls in the footprints dataset. Some assumptions I'm making:
+1. If the building lat, lng doesn't fall in a footprint, then it will be dropped from the dataset
+2. If multiple building IDs collide into the same building footprint, then all of their data will be dropped from the dataset
+
+First step though is to get a unique list of buildings in our energy/climate dataset which is reporting
+"""
+
+# ╔═╡ 990b6d78-4650-4665-af61-22fc53fb50b7
+buildings_with_data = @chain energy_climate begin
+	DataFrames.groupby(:id)
+	DataFrames.combine(first)
+	select([:id, :geom])
+end
+
+# ╔═╡ afeba502-4a7e-4f7a-b1bb-d4f617763ca5
+md"""
+We can also plot them to make sure it's all working as intended
+"""
+
+# ╔═╡ cd5ccc7d-3113-4db3-bf64-1f0cb8a1e249
+
+
+# ╔═╡ 11330b51-1bbe-4a7f-b398-1dda6848a669
+md"""
+## 8. Look for streetview images
+"""
+
+# ╔═╡ 23b2ae8e-0149-4df8-b23f-6d48460e779a
+md"""
+As a first pass, going to just draw a bubble around each building geometry. Now, we want to be more accurate with how far we project bubbles around each building in terms of meters. To do this accurately, I'm going to first convert all of the data into UTM, which lets us evenly project bubbles in terms of meters
+"""
+
+# ╔═╡ 3498d6ee-56f8-402d-8917-2fa2aace76f9
+m_samples = 100
+
+# ╔═╡ c1f54fd5-404d-4fef-b140-130baccd1d57
+border_radius = 35 #in meters
+
+# ╔═╡ bf570ab7-687a-4b79-8fda-28580752d97d
+begin
+	# ESPG codes - 4326 is the global standard for Lat, Lng and the other is UTM
+	source = 4326
+	# target = 26918
+	target = 3857
+end;
+
+# ╔═╡ 8c07ba91-7f04-46dd-9f30-41df91ee36e2
+md"""
+We project a little radius around each building which will be our *net*
+"""
+
+# ╔═╡ 46adf87b-7d4c-4c0f-897d-631fec46cab5
+md"""
+And we now have this new column in the dataset to play with when looking for streetview photos
+	"""
+
+# ╔═╡ acd39a29-e8b9-405a-b37d-fe6b17d210dd
+md"""
+Recall we have two data pieces we can use for the streetview
+1. streetview: A DataFrame with the streetview metadata
+2. streetview_points: A list of the streetview points, encoded as ArchGDAL points
+"""
+
+# ╔═╡ 502364d2-456a-4140-bbf9-70b9dc7363d8
+length(streetview_points)
+
+# ╔═╡ d94975d9-bb0b-4363-ad73-18f40f64fef2
+nrow(streetview)
+
+# ╔═╡ 5c76d3ce-913d-4dd4-875c-c8f693b0d337
+md"""
+So for every building, I'm going to check which points the bubble contains
+"""
+
+# ╔═╡ f857d45f-767a-4c91-96fd-21d944070fbd
+md"""
+So now we have a mapping from each building to streetview images nearby the building, by the Pano ID of the image
+"""
+
+# ╔═╡ 4c31b1a5-adf8-42ae-8f34-f371274c61e1
+md"""
+But I'm also going to take the opportunity to add the pano IDs as a column which will be more useful for indexing later
+"""
+
+# ╔═╡ 927a65ba-0637-4314-9836-794f86719be5
+# begin
+# 	buildings_footprint_bubbles = ArchGDAL.buffer.(buildings_footprint.footprint, )
+# end
+
 # ╔═╡ 9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 md"""
-## 7. Splitting for training and testing
+## 9. Splitting for training and testing
 """
 
 # ╔═╡ 78093bf4-7a86-4d73-95ee-47683ef926fa
@@ -746,16 +944,197 @@ begin
 	)
 end
 
+# ╔═╡ 98eb52ed-d4df-4e20-8ca2-3ae7b50e1999
+microsoft_council = @chain microsoft_new_york_city begin
+	filter(x -> GeoDataFrames.contains(selected_council_footprint, x.geom), _)
+end
+
+# ╔═╡ 3566b173-ae10-4b65-83a0-d040e802d181
+Plots.plot(
+	microsoft_council.geom, 
+	color="transparent",
+	dpi=500
+)
+
+# ╔═╡ f62813e2-fed3-4b53-a201-bfe9e7f0bfc0
+begin
+	building_footprint_match = []
+	for (index, building_point) = enumerate(eachrow(buildings_with_data))
+		for (index,footprint) in enumerate(eachrow(microsoft_council))
+			if GeoDataFrames.contains(footprint.geom, building_point.geom)
+				push!(building_footprint_match, index)
+				@goto end_building_logic
+			end
+		end
+		push!(building_footprint_match, missing)
+		@label end_building_logic
+	end
+end	
+
+# ╔═╡ 66b45f66-285c-47eb-971b-5593156d3809
+buildings_footprint_fullindex = hcat(buildings_with_data, building_footprint_match)
+
+# ╔═╡ 1dd01920-0da2-406c-9bd2-10409b38321c
+buildings_footprint = @chain buildings_footprint_fullindex begin
+	dropmissing(_, :x1)
+	unique(_, :x1)
+end
+
+# ╔═╡ 76610a44-0059-4a25-8d50-20df493688b1
+buildings_footprint
+
+# ╔═╡ cc045caa-5293-47a8-bbc5-f174ab86cb2b
+begin
+	n = 2
+	Plots.plot(buildings_footprint.footprint[1:50], color="transparent")
+	Plots.plot!(buildings_footprint.geom[1:50], color="black", markersize=3.5)
+end
+
+# ╔═╡ 0d42b241-e7f6-488a-9524-4d3612ba4f2a
+begin
+using_border_radius = border_radius # should be in meters
+	
+reproject(
+	buildings_footprint.footprint, 
+	GeoFormatTypes.EPSG(source), 
+	GeoFormatTypes.EPSG(target)
+)
+
+
+# Now that we're in this strange world of distorted UTM codes, we want to use it so we can accurately project X meters away from each building to hunt for streetview images
+buildings_footprint[!,"footprint_bubble"] = 
+	GeoDataFrames.buffer.(
+		buildings_footprint.footprint,
+		using_border_radius
+	)
+
+reproject(
+	buildings_footprint.footprint, 
+	GeoFormatTypes.EPSG(target), 
+	GeoFormatTypes.EPSG(source)
+)
+reproject(
+	buildings_footprint.footprint_bubble, 
+	GeoFormatTypes.EPSG(target), 
+	GeoFormatTypes.EPSG(source)
+)
+
+# Now we can visualize the results a bit
+Plots.plot(
+	buildings_footprint.footprint_bubble[1:m_samples], 
+	color=color_scheme[1], 
+	alpha=0.2,
+	dpi=500
+)
+Plots.plot!(
+	buildings_footprint.footprint[1:m_samples], 
+	color="transparent"
+)
+Plots.plot!(
+	buildings_footprint.geom[1:m_samples], 
+	color="indianred", 
+	markersize=3
+)
+end
+
+# ╔═╡ b42f75aa-06fb-449e-b9e2-01146d37b218
+buildings_footprint.footprint_bubble
+
+# ╔═╡ 2b7cc18f-8f6c-4163-8da0-3774bf853a4f
+begin
+	border_radius
+	building_streetview_map = []
+	building_streetview_panos = []
+	for building_bubble in buildings_footprint.footprint_bubble
+		building_streetview_points_index = []
+		for (index, streetview_point) in enumerate(streetview_points)
+			if GeoDataFrames.contains(building_bubble, streetview_point)
+				push!(building_streetview_points_index, index)
+			end
+		end
+		push!(
+			building_streetview_map,
+			building_streetview_points_index
+		)
+		push!(
+			building_streetview_panos,
+			streetview.pano_id[building_streetview_points_index]
+		)
+	end
+end
+
+# ╔═╡ 88fcd33a-a574-45af-8677-26511b5bdf7e
+buildings_footprint[!,"streetview_mapping"] = building_streetview_map
+
+# ╔═╡ bab915c5-61c1-47f3-9211-87ecb552734d
+# Now we can visualize the results a bit
+begin
+	border_radius
+	jpoint = 15
+	Plots.plot(
+		buildings_footprint.footprint_bubble[jpoint], 
+		color=color_scheme[1], 
+		alpha=0.1,
+		dpi=500
+	)
+	Plots.plot!(
+		buildings_footprint.footprint[jpoint], 
+		color="transparent",
+		linewidth=2
+	)
+	Plots.plot!(
+		buildings_footprint.geom[jpoint],
+		color=color_scheme[4], 
+		markersize=3
+	)
+	Plots.plot!(
+		streetview_points[buildings_footprint.streetview_mapping[jpoint]], 
+		color=color_scheme[end-1], 
+		markersize=3,
+		alpha=0.7
+	)
+end
+
+# ╔═╡ 8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
+buildings_footprint[!,"streetview_panos"] = building_streetview_panos
+
+# ╔═╡ 813feb02-4c08-482d-a033-56531f0e1d1b
+# this should work because we just dropped the missing terms, so all that's left should be index values from the for loop
+buildings_footprint[!,"footprint"] = microsoft_council.geom[convert.(Int64, buildings_footprint.x1)];
+
+# ╔═╡ 4d21be1f-a5e8-405d-9d54-5a0147a202da
+
+
+# ╔═╡ 1ed35dc3-c604-450a-9218-a49a9b6df84b
+buildings_metadata = @chain buildings_footprint begin
+	select([:id, :footprint, :streetview_panos])
+end
+
+# ╔═╡ 68b2baf3-cc88-45ef-a346-0e731449b00b
+begin
+	data_full = leftjoin(
+		energy_climate,
+		buildings_metadata,
+		on=:id
+	)
+	@chain data_full begin
+		dropmissing!
+	end
+end
+
 # ╔═╡ 5bac64d2-36ed-493c-b4a5-527fa5c336be
 begin
 	test = filter(
-		x -> GeoDataFrames.contains(selected_council_footprint, x.geom), energy_climate)
+		x -> GeoDataFrames.contains(selected_council_footprint, x.geom), data_full)
 	train = filter(
-		x -> !GeoDataFrames.contains(selected_council_footprint, x.geom), energy_climate)
+		x -> !GeoDataFrames.contains(selected_council_footprint, x.geom), data_full)
 end;
 
 # ╔═╡ 03905524-ba7d-4ea5-8c3e-0539c29d8668
 nrow(test)
+
+# ╔═╡ d28d255e-bcb9-4764-a719-9f361a8db915
+nrow(test) / 12 # the number of buildingsf
 
 # ╔═╡ 3fd53180-5822-49a2-82f2-2a9e974ff239
 nrow(train)
@@ -779,6 +1158,7 @@ LazySets = "b4f0291d-fe17-52bc-9479-3d1a343d9043"
 Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 VoronoiCells = "e3e34ffb-84e9-5012-9490-92c94d0c60a4"
@@ -799,6 +1179,7 @@ LazySets = "~1.56.0"
 Missings = "~1.0.2"
 Plots = "~1.25.11"
 PlutoUI = "~0.7.37"
+ProgressMeter = "~1.7.1"
 StatsBase = "~0.33.16"
 VoronoiCells = "~0.3.0"
 """
@@ -809,7 +1190,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-DEV.53"
 manifest_format = "2.0"
-project_hash = "fc34f9f35c0165c783f53adb8e6fddd12583a131"
+project_hash = "93d25f8831a36fa331b5e44c7a7fd1f71165f9fb"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -2025,6 +2406,12 @@ uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 
+[[deps.ProgressMeter]]
+deps = ["Distributed", "Printf"]
+git-tree-sha1 = "afadeba63d90ff223a6a48d2009434ecee2ec9e8"
+uuid = "92933f4c-e287-5a05-a399-4b506db050ca"
+version = "1.7.1"
+
 [[deps.Qt5Base_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Fontconfig_jll", "Glib_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "OpenSSL_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libxcb_jll", "Xorg_xcb_util_image_jll", "Xorg_xcb_util_keysyms_jll", "Xorg_xcb_util_renderutil_jll", "Xorg_xcb_util_wm_jll", "Zlib_jll", "xkbcommon_jll"]
 git-tree-sha1 = "ad368663a5e20dbb8d6dc2fddeefe4dae0781ae8"
@@ -2630,20 +3017,22 @@ version = "0.9.1+5"
 # ╠═49d1ea64-9535-11ec-2eab-119fadb9083e
 # ╟─800a75e5-4f56-49e9-8d77-d62cce02ebad
 # ╟─8bb0c644-ce7b-49d8-8107-fd473f281199
+# ╟─e2e418ad-9fcf-4c8b-b20f-383efe07f094
+# ╠═283fd0e7-ecfe-476c-9f9c-915d2d9db529
+# ╠═e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
 # ╟─8ef3ef24-6ab4-4e55-a6bc-6ee4ac901a53
-# ╠═4d822b90-5b31-4bb3-954b-71675e6c1dd9
-# ╟─ce7bf29b-0cd3-4e8b-95ad-a804fd0e6537
+# ╟─4d822b90-5b31-4bb3-954b-71675e6c1dd9
 # ╟─bf92bd9a-eb71-468e-b7c2-1b5980dd0a5c
-# ╠═08d4a328-141c-4869-88c7-09ea8ff57590
+# ╟─08d4a328-141c-4869-88c7-09ea8ff57590
 # ╟─464a6802-c5eb-4a42-b9f4-d0dde12e24e8
 # ╟─5157cf2e-5b1c-447c-9d59-9064ecf9a771
 # ╟─31f66cb8-afa3-4ebc-9d7d-7d220997ba1f
-# ╠═8594d3ad-0e04-49d3-86e1-cdc0c8f8951c
+# ╟─8594d3ad-0e04-49d3-86e1-cdc0c8f8951c
 # ╟─0d9ba991-3d5a-4a15-84fd-a9641323e0d6
 # ╟─9d4de2c5-c0d2-468d-b694-c678c6961857
 # ╟─20886cf8-b48d-4293-b756-a894279d11f8
 # ╟─e9df25ae-f0e5-4634-8b44-f40576c7fc87
-# ╠═a0b152a2-6189-459a-9288-514c8b3d14f5
+# ╟─a0b152a2-6189-459a-9288-514c8b3d14f5
 # ╟─e38363af-1059-4c7e-bc2b-94924f34b01b
 # ╟─9d65dabb-d4d2-49c1-96f2-1f5a02bdbecf
 # ╟─4608787a-e817-4ae4-bfd7-018445586632
@@ -2703,17 +3092,60 @@ version = "0.9.1+5"
 # ╟─c4aa4c0a-6ad0-418d-8c76-56d2a840905c
 # ╟─73c36e85-ad6f-42e2-a5c0-5fc10c8db7ce
 # ╟─54754fac-ceab-47e3-ac6b-d8f837078072
-# ╠═75bbca6f-6410-4a93-854c-3ea030f94217
-# ╠═85e138e8-fd2f-4239-9b41-2aa6cb9d8ed2
-# ╠═bacb917d-8d9a-4081-8039-966849ade9d6
+# ╟─75bbca6f-6410-4a93-854c-3ea030f94217
+# ╟─85e138e8-fd2f-4239-9b41-2aa6cb9d8ed2
+# ╟─bacb917d-8d9a-4081-8039-966849ade9d6
 # ╟─e1bc6d5a-99c8-4d83-aad6-491b5ededfd0
 # ╟─1cc473f5-6ac6-4876-af22-987768f2ad16
 # ╟─d8512b16-84f5-4b0a-a7de-3bffb3367242
+# ╟─05d62c11-9bbf-4b4d-bdf0-b43685e33f1c
+# ╟─56ac5f27-682a-42f7-99ea-7882f29506fb
+# ╠═18cbefa1-d451-47a7-9e75-b00bbfa2f78a
+# ╠═ee1f546d-2755-48e2-b18c-17e7d1c55298
+# ╟─aa4bd689-a3b4-4fea-9242-1a43ce5bbb17
+# ╠═2d1114cd-0d7e-470c-8313-a6229367c7c9
+# ╟─4718a5e0-c28e-4ea2-8e3c-d651740ea344
+# ╠═98eb52ed-d4df-4e20-8ca2-3ae7b50e1999
+# ╠═3566b173-ae10-4b65-83a0-d040e802d181
+# ╟─a87ee29b-a9bb-472d-a9a3-51224e0a1bdd
+# ╠═990b6d78-4650-4665-af61-22fc53fb50b7
+# ╠═f62813e2-fed3-4b53-a201-bfe9e7f0bfc0
+# ╠═66b45f66-285c-47eb-971b-5593156d3809
+# ╠═1dd01920-0da2-406c-9bd2-10409b38321c
+# ╠═813feb02-4c08-482d-a033-56531f0e1d1b
+# ╠═76610a44-0059-4a25-8d50-20df493688b1
+# ╟─afeba502-4a7e-4f7a-b1bb-d4f617763ca5
+# ╟─cc045caa-5293-47a8-bbc5-f174ab86cb2b
+# ╟─cd5ccc7d-3113-4db3-bf64-1f0cb8a1e249
+# ╟─11330b51-1bbe-4a7f-b398-1dda6848a669
+# ╟─23b2ae8e-0149-4df8-b23f-6d48460e779a
+# ╠═3498d6ee-56f8-402d-8917-2fa2aace76f9
+# ╠═c1f54fd5-404d-4fef-b140-130baccd1d57
+# ╠═bf570ab7-687a-4b79-8fda-28580752d97d
+# ╟─8c07ba91-7f04-46dd-9f30-41df91ee36e2
+# ╟─0d42b241-e7f6-488a-9524-4d3612ba4f2a
+# ╟─46adf87b-7d4c-4c0f-897d-631fec46cab5
+# ╠═b42f75aa-06fb-449e-b9e2-01146d37b218
+# ╟─acd39a29-e8b9-405a-b37d-fe6b17d210dd
+# ╠═502364d2-456a-4140-bbf9-70b9dc7363d8
+# ╠═d94975d9-bb0b-4363-ad73-18f40f64fef2
+# ╟─5c76d3ce-913d-4dd4-875c-c8f693b0d337
+# ╠═2b7cc18f-8f6c-4163-8da0-3774bf853a4f
+# ╟─f857d45f-767a-4c91-96fd-21d944070fbd
+# ╠═88fcd33a-a574-45af-8677-26511b5bdf7e
+# ╟─bab915c5-61c1-47f3-9211-87ecb552734d
+# ╟─4c31b1a5-adf8-42ae-8f34-f371274c61e1
+# ╠═8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
+# ╟─927a65ba-0637-4314-9836-794f86719be5
 # ╟─9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 # ╠═78093bf4-7a86-4d73-95ee-47683ef926fa
 # ╟─e9f57d8a-e13a-472d-a567-790cab0e7c1b
+# ╟─4d21be1f-a5e8-405d-9d54-5a0147a202da
+# ╠═1ed35dc3-c604-450a-9218-a49a9b6df84b
+# ╠═68b2baf3-cc88-45ef-a346-0e731449b00b
 # ╠═5bac64d2-36ed-493c-b4a5-527fa5c336be
 # ╠═03905524-ba7d-4ea5-8c3e-0539c29d8668
+# ╠═d28d255e-bcb9-4764-a719-9f361a8db915
 # ╠═3fd53180-5822-49a2-82f2-2a9e974ff239
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
