@@ -48,13 +48,20 @@ This file runs the general trajectory for processing historical weather data fro
 5. Drop the graphing dependencies for council footprints (it's custom for New York) potentially again using multiple dispatch
 """
 
+# ╔═╡ c8ed3ef3-eb49-45c3-933d-6935d8ea14eb
+# this cell is used to control the intensity of the program when trying things out
+begin
+	toyset = true
+	if (length(ARGS) > 0 && ARGS[1] == "full")
+		toyset = false
+		println("Running full datset at time: ", Dates.now())
+	end
+end
+
 # ╔═╡ e2e418ad-9fcf-4c8b-b20f-383efe07f094
 md"""
 All of the filename paths:
 """
-
-# ╔═╡ 283fd0e7-ecfe-476c-9f9c-915d2d9db529
-toyset = true
 
 # ╔═╡ e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
 begin
@@ -66,7 +73,7 @@ begin
 
 	weather_path = joinpath(
 		weather_directory,
-		"request_results.csv"
+		"2020.csv"
 	)
 	council_footprints_path = joinpath(
 		footprints_directory, 
@@ -91,34 +98,27 @@ begin
 		"planet_3m_raw",
 		"lowres.tif"
 	)
+	microsoft_building_footprints_path = joinpath(
+		footprints_directory,
+		"NewYorkCity.geojson"
+	)
+	streetview_metadata_path = joinpath(
+		photos_directory, 
+		"streetview",
+		"manhattan_metadata_nodes.tsv"
+	)
 
 	### There are two versions of this data - one is for the toyset, which will just look at one council region (2) of New York, the other has data for the entire region. This is to reduce processing time when building algorithms, but be sure to switch it back to the full data before running the entire algorithm
 
 	if toyset
-		microsoft_building_footprints_path = joinpath(
-			footprints_directory,
-			"NewYorkCity.geojson"
-		)
+		# Might want to do something later like change the data loaded
 		# For the full footprints list of New York State
 		# microsoft_building_footprints_path = joinpath(
 		# 	footprints_directory,
 		# 	"NewYork.geojson"
 		# )
-		streetview_metadata_path = joinpath(
-			photos_directory, 
-			"streetview",
-			"manhattan_metadata_nodes.tsv"
-		)
 	else
-		microsoft_building_footprints_path = joinpath(
-			footprints_directory,
-			"NewYork.geojson"
-		)
-		streetview_metadata_path = joinpath(
-			photos_directory, 
-			"streetview",
-			"manhattan_metadata_nodes.tsv"
-		)
+		# nothing right now
 	end
 end;
 
@@ -385,8 +385,9 @@ md"""
 
 # ╔═╡ b485d1e4-c249-47ad-8e45-707756675fdb
 begin
+function weather_cells(cells)
 	regional_polygons::Vector{Vector{Tuple{Float64, Float64}}} = []
-	for cell in tess_select.Cells
+	for cell in cells
 		cell_coords::Vector{Tuple{Float64, Float64}} = []
 		for el in cell
 			data_tuple::Tuple{Float64, Float64} = el.data
@@ -396,7 +397,9 @@ begin
 		push!(regional_polygons, cell_coords)
 	end
 	regional_polygon_geom = ArchGDAL.createpolygon.(regional_polygons)
-	unique_stations_select[:,"geom"] = regional_polygon_geom
+end
+regional_polygon_geom = weather_cells(tess_select.Cells)
+unique_stations_select[!,"geom"] = regional_polygon_geom
 end;
 
 # ╔═╡ e013cb41-819d-4b8a-8381-0784167b401a
@@ -449,6 +452,15 @@ Now that the weather cleaning is more or less finished, time to move to the buil
 # ╔═╡ ee5a17b7-d9d0-410f-8196-9a3d9d2010d1
 n_sample = 500
 
+# ╔═╡ 666fdd7b-8062-45d9-822b-bedeca682576
+# we might want some feature in here which limits the age of the nyc footprint
+
+# ╔═╡ 80339671-3cc9-42cc-858a-64ae9bd9b5a8
+raw_footprints = GeoDataFrames.read(building_footprints_path)
+
+# ╔═╡ c14e276e-4b3c-4e67-b5a0-5b19d7a21180
+unique(raw_footprints.geomsource)
+
 # ╔═╡ b49eb729-7d16-4165-8c80-e901cbbf3b01
 md"""
 ##### Building Footprints
@@ -473,17 +485,21 @@ begin
 	])
 	dropmissing!(footprints, [:bbl,:bin])
 	reproject_points!(footprints.geom, source, target)
+	footprints[!,:geom_point] = [ArchGDAL.centroid(x) for x in footprints.geom]
+	footprints
 end
 
 # ╔═╡ 97efb80c-0915-42df-8199-6df2639d2d41
-Plots.plot(
-	council_plot,
-	unique(footprints.geom[1:n_sample]), 
+begin
+Plots.plot(council_plot)
+Plots.plot!(
+	unique(footprints.geom_point[1:n_sample]), 
 	color=color_scheme[4],
-	alpha=0.6, 
-	markersize=2.5,
+	alpha=1,
+	markersize=3,
 	dpi=400
 )
+end
 
 # ╔═╡ 223a20c9-6a8e-4014-a909-1e4e8525d282
 
@@ -552,13 +568,15 @@ Now to link the monthly energy consumption data with the footprints using the an
 
 # ╔═╡ ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
 begin
+	# This first one is to get a BBL from the annual data which we can match to footprints
 	nyc_monthly_energy_2020_joined = leftjoin(nyc_monthly_energy_2020,
 		nyc_annual_energy_2020, on="Property Id", makeunique=true)
 	dropmissing!(nyc_monthly_energy_2020_joined, [:bbl,:bin])
+	# This second join is to actually match with the footprints
 	nyc_geomonthly_2020 = leftjoin(nyc_monthly_energy_2020_joined,
 		footprints, on="bbl", makeunique=true)
-	dropmissing!(nyc_geomonthly_2020, [:geom])
-	select(nyc_geomonthly_2020, :geom, :)
+	dropmissing!(nyc_geomonthly_2020, [:geom_point])
+	select(nyc_geomonthly_2020, :geom_point, :)
 end
 
 # ╔═╡ cc6f26f6-3db6-41b4-9e71-b6d48592c410
@@ -570,7 +588,7 @@ md"""
 begin
 Plots.plot(
 	council_plot,
-	unique(nyc_geomonthly_2020.geom)[1:n_sample],
+	unique(nyc_geomonthly_2020.geom_point)[1:n_sample],
 	color=color_scheme[end-2],
 	alpha=0.6,
 	dpi=500,
@@ -744,13 +762,13 @@ This will be curated by building a box around all of the points we have in the b
 
 # ╔═╡ 3e737332-78f9-4a93-931c-3b4bd2a1c195
 begin
-	sample_energy = energy[.!nonunique(energy, :id), :]
-	hull_list = [ [ArchGDAL.getx(p, 0), ArchGDAL.gety(p,0)] for p in unique(sample_energy.geom) ];
+	unique_energy = energy[.!nonunique(energy, :id), :]
+	hull_list = [ [ArchGDAL.getx(p, 0), ArchGDAL.gety(p,0)] for p in unique(unique_energy.geom_point) ];
 	nyc_convex_hull = convex_hull(hull_list);
 	insert!(nyc_convex_hull, length(nyc_convex_hull)+1, nyc_convex_hull[1]);
 	hull_polygon = ArchGDAL.createpolygon(nyc_convex_hull)
 	pointslist = [ ArchGDAL.createpoint(v...) for v in hull_list ]
-end;
+end
 
 # ╔═╡ 3216b2cb-976e-40cd-aee4-69af2ce5cb31
 begin
@@ -794,7 +812,7 @@ begin
 	building_service_mapping = Dict()
 	for energy_id in eachrow(unique_energyid_df)
 		for service_area in eachrow(service_areas)
-			if GeoDataFrames.contains(service_area.geom, energy_id.geom)
+			if GeoDataFrames.contains(service_area.geom, energy_id.geom_point)
 				building_service_mapping[energy_id.id] = service_area.STATION
 				@goto next_energy_id
 			end
@@ -823,7 +841,7 @@ end;
 # ╔═╡ bacb917d-8d9a-4081-8039-966849ade9d6
 begin
 	weather_membership_plot = Plots.plot(
-		small_energy.geom,
+		small_energy.geom_point,
 		palette=small_energy.service_zone_color,
 		markersize=3.4,
 		markerstrokewidth=0.3,
@@ -853,7 +871,7 @@ energy_climate = @chain energy begin
 		makeunique=true 
 	)
 	select([
-		:geom,
+		:geom_point,
 		:id,
 		:daily_electric,
 		:daily_gas,
@@ -893,22 +911,20 @@ Microsoft foorprints overview - **TODO:** find a way to first sort this by the s
 # 	GeoDataFrames.write("./data/nyc/footprints/NewYorkCity.geojson", microsoft_new_york_city)
 # end
 
+# ╔═╡ 56683a3f-cab1-478a-a4fa-25c7a5df3ce6
+md"""
+Checking out what some of the metadata looks like for the microsoft set
+"""
+
 # ╔═╡ ee1f546d-2755-48e2-b18c-17e7d1c55298
 begin
 	microsoft_footprints = GeoDataFrames.read(microsoft_building_footprints_path)
-	microsoft_new_york_city = @chain microsoft_footprints begin
+	microsoft_footprints = @chain microsoft_footprints begin
 		sort(:release, rev=true)
 	end
-	reproject_points!(microsoft_new_york_city.geom, source, target)
+	reproject_points!(microsoft_footprints.geom, source, target)
+	unique(microsoft_footprints, :capture_dates_range)
 end
-
-# ╔═╡ aa4bd689-a3b4-4fea-9242-1a43ce5bbb17
-md"""
-Some of the metadata for the unique kinds of reporting by Microsoft
-"""
-
-# ╔═╡ 2d1114cd-0d7e-470c-8313-a6229367c7c9
-unique(microsoft_new_york_city, :capture_dates_range)
 
 # ╔═╡ 4718a5e0-c28e-4ea2-8e3c-d651740ea344
 md"""
@@ -918,25 +934,28 @@ We can also just look at the select region of interest for our testing set to se
 # ╔═╡ 596d95ef-8c84-4e3e-a5a5-bde5c50518b7
 test_district = 2
 
-# ╔═╡ f0bb963d-6f7b-452a-9584-8e010ff37ca8
-begin
-selected_council_footprint = council_footprints[council_footprints.coun_dist .== test_district, :].geom[1]
-end
-
 # ╔═╡ 98eb52ed-d4df-4e20-8ca2-3ae7b50e1999
 begin
-microsoft_council = @chain microsoft_new_york_city begin
-	filter(x -> GeoDataFrames.contains(selected_council_footprint, x.geom), _)
-end
+	test_district
+	selected_council_footprint = council_footprints[council_footprints.coun_dist .== test_district, :].geom[1]
+
+	if toyset == true
+		@chain microsoft_footprints begin
+			filter!(x -> GeoDataFrames.contains(selected_council_footprint, x.geom), _)
+		end
+	end
 end;
 
 # ╔═╡ 3566b173-ae10-4b65-83a0-d040e802d181
+begin
+test_district
 Plots.plot(
-	microsoft_council.geom, 
+	microsoft_footprints.geom, 
 	color="transparent",
 	size=(700,700),
 	dpi=500
 )
+end
 
 # ╔═╡ a87ee29b-a9bb-472d-a9a3-51224e0a1bdd
 md"""
@@ -948,19 +967,27 @@ First step though is to get a unique list of buildings in our energy/climate dat
 """
 
 # ╔═╡ 990b6d78-4650-4665-af61-22fc53fb50b7
-buildings_with_data = @chain energy_climate begin
-	DataFrames.groupby(:id)
-	DataFrames.combine(first)
-	select([:id, :geom])
+begin
+	test_district
+	buildings_with_data = @chain energy_climate begin
+		DataFrames.groupby(:id)
+		DataFrames.combine(first)
+		select([:id, :geom_point])
+	end
+	first(buildings_with_data, 3)
 end
+
+# ╔═╡ d61157fc-b565-4e61-9d55-4199745c5b05
+microsoft_footprints
 
 # ╔═╡ f62813e2-fed3-4b53-a201-bfe9e7f0bfc0
 begin
+	test_district # this is just to trigger this cell when district is changed
 	building_footprint_match = []
-	for (index, building_point) = enumerate(eachrow(buildings_with_data))
-		for (index,footprint) in enumerate(eachrow(microsoft_council))
-			if GeoDataFrames.contains(footprint.geom, building_point.geom)
-				push!(building_footprint_match, index)
+	for (building_index, building_point) = enumerate(eachrow(buildings_with_data))
+		for (footprint_index,footprint) in enumerate(eachrow(microsoft_footprints))
+			if GeoDataFrames.contains(footprint.geom, building_point.geom_point)
+				push!(building_footprint_match, footprint_index)
 				@goto end_building_logic
 			end
 		end
@@ -989,8 +1016,11 @@ buildings_footprint = @chain buildings_footprint_fullindex begin
 end
 
 # ╔═╡ 813feb02-4c08-482d-a033-56531f0e1d1b
-# this should work because we just dropped the missing terms, so all that's left should be index values from the for loop
-buildings_footprint.footprint = microsoft_council.geom[convert.(Int64, buildings_footprint.x1)];
+begin
+	# this should work because we just dropped the missing terms, so all that's left should be index values from the for loop
+	test_district
+	buildings_footprint[!,:footprint] = microsoft_footprints.geom[convert.(Int64, buildings_footprint.x1)];
+end;
 
 # ╔═╡ afeba502-4a7e-4f7a-b1bb-d4f617763ca5
 md"""
@@ -999,9 +1029,9 @@ We can also plot them to make sure it's all working as intended
 
 # ╔═╡ cc045caa-5293-47a8-bbc5-f174ab86cb2b
 begin
-	n = 2
-	Plots.plot(buildings_footprint.footprint[1:50], color="transparent")
-	Plots.plot!(buildings_footprint.geom[1:50], color="black", markersize=3.5)
+	test_district
+	Plots.plot(buildings_footprint.footprint[1:50], color="transparent", size=(500,500), dpi=500)
+	Plots.plot!(buildings_footprint.geom_point[1:50], color="black", markersize=2.5)
 end
 
 # ╔═╡ cd5ccc7d-3113-4db3-bf64-1f0cb8a1e249
@@ -1031,7 +1061,7 @@ We project a little radius around each building which will be our *net*
 # ╔═╡ 0d42b241-e7f6-488a-9524-4d3612ba4f2a
 begin
 border_radius # should be in meters
-buildings_footprint.footprint_bubble = 
+buildings_footprint[!,:footprint_bubble] = 
 	GeoDataFrames.buffer.(
 		buildings_footprint.footprint,
 		border_radius
@@ -1042,6 +1072,7 @@ Plots.plot(
 	buildings_footprint.footprint_bubble[1:m_samples], 
 	color=color_scheme[1], 
 	alpha=0.2,
+	size=(500,500),
 	dpi=500
 )
 Plots.plot!(
@@ -1049,7 +1080,7 @@ Plots.plot!(
 	color="transparent"
 )
 Plots.plot!(
-	buildings_footprint.geom[1:m_samples], 
+	buildings_footprint.geom_point[1:m_samples], 
 	color="indianred", 
 	markersize=2.1
 )
@@ -1083,25 +1114,30 @@ So for every building, I'm going to check which points the bubble contains
 
 # ╔═╡ 2b7cc18f-8f6c-4163-8da0-3774bf853a4f
 begin
+	test_district
 	border_radius
-	building_streetview_map = []
-	building_streetview_panos = []
-	for building_bubble in buildings_footprint.footprint_bubble
-		building_streetview_points_index = []
-		for (index, streetview_point) in enumerate(streetview_points)
-			if GeoDataFrames.contains(building_bubble, streetview_point)
-				push!(building_streetview_points_index, index)
+	function streetview_map(streetview_points, footprint_bubbles)
+		building_streetview_map = []
+		building_streetview_panos::Vector{Vector{String}} = []
+		for building_bubble in footprint_bubbles
+			building_streetview_points_index = []
+			for (index, streetview_point) in enumerate(streetview_points)
+				if GeoDataFrames.contains(building_bubble, streetview_point)
+					push!(building_streetview_points_index, index)
+				end
 			end
+			push!(
+				building_streetview_map,
+				building_streetview_points_index
+			)
+			push!(
+				building_streetview_panos,
+				streetview.pano_id[building_streetview_points_index]
+			)
 		end
-		push!(
-			building_streetview_map,
-			building_streetview_points_index
-		)
-		push!(
-			building_streetview_panos,
-			streetview.pano_id[building_streetview_points_index]
-		)
+	return (building_streetview_panos, building_streetview_map)
 	end
+	building_streetview_panos, building_streetview_map = streetview_map(streetview_points, buildings_footprint.footprint_bubble)
 end
 
 # ╔═╡ f857d45f-767a-4c91-96fd-21d944070fbd
@@ -1113,7 +1149,7 @@ So now we have a mapping from each building to streetview images nearby the buil
 buildings_footprint.streetview_mapping = building_streetview_map
 
 # ╔═╡ 8f94298d-533d-4252-b0e8-180808719a25
-jpoint = 149
+jpoint = 15
 
 # ╔═╡ bab915c5-61c1-47f3-9211-87ecb552734d
 # Now we can visualize the results a bit
@@ -1126,12 +1162,12 @@ begin
 		dpi=500
 	)
 	Plots.plot!(
-		buildings_footprint.footprint[jpoint], 
+		buildings_footprint.footprint[jpoint],
 		color="transparent",
 		linewidth=2
 	)
 	Plots.plot!(
-		buildings_footprint.geom[jpoint],
+		buildings_footprint.geom_point[jpoint],
 		color=color_scheme[4], 
 		markersize=10,
 		alpha=0.5
@@ -1151,11 +1187,6 @@ But I'm also going to take the opportunity to add the pano IDs as a column which
 
 # ╔═╡ 8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
 buildings_footprint.streetview_panos = building_streetview_panos
-
-# ╔═╡ 927a65ba-0637-4314-9836-794f86719be5
-# begin
-# 	buildings_footprint_bubbles = ArchGDAL.buffer.(buildings_footprint.footprint, )
-# end
 
 # ╔═╡ 9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 md"""
@@ -1188,10 +1219,18 @@ md"""
 Here's what the full, processed data looks like
 """
 
+# ╔═╡ 88839489-e6ec-4ff4-9d79-cd9da526e35c
+begin
+buildings_footprint[:,"floorarea"] = [ 
+	ArchGDAL.geomarea(x) for x in buildings_footprint.footprint 
+]
+buildings_footprint
+end
+
 # ╔═╡ 1ed35dc3-c604-450a-9218-a49a9b6df84b
 begin
 buildings_metadata = @chain buildings_footprint begin
-	select([:id, :footprint, :streetview_panos])
+	select([:id, :footprint, :floorarea, :streetview_panos])
 end
 first(buildings_metadata, 3)
 end
@@ -1216,23 +1255,19 @@ end
 
 # ╔═╡ 5bac64d2-36ed-493c-b4a5-527fa5c336be
 begin
-	test = filter(
-		x -> GeoDataFrames.contains(selected_council_footprint, x.geom), data_full)
-	train = filter(
-		x -> !GeoDataFrames.contains(selected_council_footprint, x.geom), data_full)
+	# builds the training and test datasets
+	if toyset == false
+		test = filter(
+			x -> GeoDataFrames.contains(selected_council_footprint, x.footprint), data_full)
+		select!(test, Not(:geom_point))
+		train = filter(
+			x -> !GeoDataFrames.contains(selected_council_footprint, x.footprint), data_full)
+		select!(train, Not(:geom_point))
+	
+		GeoDataFrames.write("test.geojson", test; layer_name="data", geom_column=:footprint)
+		# GeoDataFrames.write("train.geojson", train; layer_name="data", geom_column=:footprint)
+	end
 end;
-
-# ╔═╡ 03905524-ba7d-4ea5-8c3e-0539c29d8668
-nrow(test)
-
-# ╔═╡ d28d255e-bcb9-4764-a719-9f361a8db915
-nrow(test) / 12 # the number of buildingsf
-
-# ╔═╡ 3fd53180-5822-49a2-82f2-2a9e974ff239
-nrow(train)
-
-# ╔═╡ de0b3b9f-0d64-4d5e-a80f-30b207a97b4d
-
 
 # ╔═╡ 7f427ca1-9311-4a52-936b-0f0e23fd8be7
 md"""
@@ -1240,14 +1275,17 @@ md"""
 """
 
 # ╔═╡ bcddd86e-28a0-4df9-836d-ba985248e889
-test_tif = joinpath(
-	photos_directory,
-	"planet_3m_raw",
-	"L15-0603E-1278N.tif"
-)
+# test_tif = joinpath(
+# 	photos_directory,
+# 	"planet_3m_raw",
+# 	"lowres.tif"
+# )
 
 # ╔═╡ 2ca23b00-4c41-4cb6-a6af-331e12c814de
-satellite_tif = gmtread(test_tif);
+# satellite_tif = ArchGDAL.read(test_tif);
+
+# ╔═╡ cf8d2ff2-0bac-44ef-9c2c-1e4fe118ed0b
+# ArchGDAL.filelist(satellite_tif)
 
 # ╔═╡ a6bc01d8-2dbb-453c-8dce-92cbc8c015a7
 # begin
@@ -1259,27 +1297,24 @@ satellite_tif = gmtread(test_tif);
 # )
 # end
 
-# ╔═╡ 394fb25b-7a09-4791-b8fd-92c5ca9903cc
-
-
 # ╔═╡ 30c53681-703e-4c0e-9c18-01b04d232ac3
-testtif_arch = ArchGDAL.read(test_tif)
+# testtif_arch = ArchGDAL.read(test_tif)
 
 # ╔═╡ e0716bcb-45ed-4b9b-bd3a-1e48d06af32b
-ArchGDAL.getgeotransform(testtif_arch)
+# ArchGDAL.getgeotransform(testtif_arch)
 
 # ╔═╡ 44751276-26d9-421c-8096-a1bf422d6c04
-lowres_path = joinpath(
-	photos_directory,
-	"planet_3m_raw",
-	"lowres.tif"
-)
+# lowres_path = joinpath(
+# 	photos_directory,
+# 	"planet_3m_raw",
+# 	"lowres.tif"
+# )
 
 # ╔═╡ 70294579-9025-4709-accd-3d0279df91c7
-lowres_tif = ArchGDAL.read(lowres_path)
+# lowres_tif = ArchGDAL.read(lowres_path)
 
 # ╔═╡ 84351e0e-c118-4567-a4d7-86af12b0dfb2
-number_rasters = (ArchGDAL.nraster(lowres_tif))
+# number_rasters = (ArchGDAL.nraster(lowres_tif))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3299,18 +3334,18 @@ version = "0.9.1+5"
 # ╠═49d1ea64-9535-11ec-2eab-119fadb9083e
 # ╟─800a75e5-4f56-49e9-8d77-d62cce02ebad
 # ╟─8bb0c644-ce7b-49d8-8107-fd473f281199
+# ╠═c8ed3ef3-eb49-45c3-933d-6935d8ea14eb
 # ╟─e2e418ad-9fcf-4c8b-b20f-383efe07f094
-# ╠═283fd0e7-ecfe-476c-9f9c-915d2d9db529
-# ╟─e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
+# ╠═e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
 # ╠═68884f19-bca4-40b0-8a6a-91783e9bc7ac
 # ╠═9398797a-82f1-42b2-ae54-5392c3ffb437
 # ╠═5e8216f3-8a86-4d6e-8444-11ba63785c1a
 # ╟─1d6bd5a3-0b3d-4870-b5bb-7a39f6494394
 # ╟─8ef3ef24-6ab4-4e55-a6bc-6ee4ac901a53
 # ╠═4d822b90-5b31-4bb3-954b-71675e6c1dd9
-# ╠═6d921f17-a3b7-469d-9df2-6d02022fcc33
+# ╟─6d921f17-a3b7-469d-9df2-6d02022fcc33
 # ╟─bf92bd9a-eb71-468e-b7c2-1b5980dd0a5c
-# ╟─08d4a328-141c-4869-88c7-09ea8ff57590
+# ╠═08d4a328-141c-4869-88c7-09ea8ff57590
 # ╟─464a6802-c5eb-4a42-b9f4-d0dde12e24e8
 # ╟─5157cf2e-5b1c-447c-9d59-9064ecf9a771
 # ╟─31f66cb8-afa3-4ebc-9d7d-7d220997ba1f
@@ -3319,16 +3354,16 @@ version = "0.9.1+5"
 # ╠═1b9654c4-ea9a-4dcd-a610-6295732d96b3
 # ╠═3a92bcdc-9c40-4fea-8955-f011b41a66c0
 # ╟─9d4de2c5-c0d2-468d-b694-c678c6961857
-# ╟─20886cf8-b48d-4293-b756-a894279d11f8
+# ╠═20886cf8-b48d-4293-b756-a894279d11f8
 # ╟─e9df25ae-f0e5-4634-8b44-f40576c7fc87
-# ╟─a0b152a2-6189-459a-9288-514c8b3d14f5
+# ╠═a0b152a2-6189-459a-9288-514c8b3d14f5
 # ╟─e38363af-1059-4c7e-bc2b-94924f34b01b
 # ╟─9d65dabb-d4d2-49c1-96f2-1f5a02bdbecf
-# ╟─4608787a-e817-4ae4-bfd7-018445586632
+# ╠═4608787a-e817-4ae4-bfd7-018445586632
 # ╟─8dc094fc-f1be-4640-b97e-94ed3e87e6a6
 # ╟─f05d157c-f2a8-421f-af61-64461b82d863
 # ╟─58e457b8-ade1-43d2-8717-ea750e84a3a1
-# ╟─143beaa8-65cb-48fd-a981-92e1543c123b
+# ╠═143beaa8-65cb-48fd-a981-92e1543c123b
 # ╟─6eb80555-636d-4072-b8a2-984a09f7f833
 # ╟─c281ed6a-7adb-489c-afde-292b0cf76485
 # ╟─9de45182-910c-4451-824a-0c08568c5fd0
@@ -3343,22 +3378,25 @@ version = "0.9.1+5"
 # ╟─d117da6c-bd22-45ed-aff2-baff497858a0
 # ╟─e9627745-e40d-41e4-b569-4ed79f5686c4
 # ╠═ee5a17b7-d9d0-410f-8196-9a3d9d2010d1
+# ╠═666fdd7b-8062-45d9-822b-bedeca682576
+# ╠═80339671-3cc9-42cc-858a-64ae9bd9b5a8
+# ╠═c14e276e-4b3c-4e67-b5a0-5b19d7a21180
 # ╟─b49eb729-7d16-4165-8c80-e901cbbf3b01
 # ╠═e36d5b6c-9a95-4570-9b4a-d3bf4f48137f
-# ╟─97efb80c-0915-42df-8199-6df2639d2d41
+# ╠═97efb80c-0915-42df-8199-6df2639d2d41
 # ╟─223a20c9-6a8e-4014-a909-1e4e8525d282
 # ╟─da770866-0a26-4722-98a8-cf7965e35d15
 # ╟─ebd20a55-ae35-463f-ad81-fb5dc35c8b41
-# ╟─a5be3813-81c3-4a08-85ad-cb43f317bf60
+# ╠═a5be3813-81c3-4a08-85ad-cb43f317bf60
 # ╟─13046794-2b45-43f2-a4dd-484173181109
 # ╟─3a6fc1ba-95fa-446c-97be-36346ff562a6
-# ╟─9f8807ca-0ec6-43f2-83b5-8a76f8feebd5
+# ╠═9f8807ca-0ec6-43f2-83b5-8a76f8feebd5
 # ╟─a28efb16-2f08-4c69-9851-153ba4c6bf1a
-# ╟─ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
+# ╠═ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
 # ╟─cc6f26f6-3db6-41b4-9e71-b6d48592c410
-# ╟─6b205e8b-f212-4668-a31e-c5af409c6e93
+# ╠═6b205e8b-f212-4668-a31e-c5af409c6e93
 # ╟─caec5908-a4c6-4bc0-8af3-6e098892e24b
-# ╟─c3d1cadb-c3d3-4452-aa8a-1f50cdee1448
+# ╠═c3d1cadb-c3d3-4452-aa8a-1f50cdee1448
 # ╟─dc647053-fdef-49c1-98e7-6292b9ac55c7
 # ╟─1f34e819-9eef-4157-8175-c90c8f92882c
 # ╟─b7cd9153-1353-4051-9197-d8137602d3fe
@@ -3374,7 +3412,7 @@ version = "0.9.1+5"
 # ╟─1d2b44be-6ece-4ec0-9142-ea480095b5ac
 # ╟─f7128f8a-77f1-4584-9cd6-2660ebfb084b
 # ╟─85716a1c-626a-4ac7-a0d9-37cf0f658f79
-# ╟─3e737332-78f9-4a93-931c-3b4bd2a1c195
+# ╠═3e737332-78f9-4a93-931c-3b4bd2a1c195
 # ╟─3216b2cb-976e-40cd-aee4-69af2ce5cb31
 # ╟─4bc5a61d-12e2-4c55-a9fa-3af21cf55f7e
 # ╟─0c400d13-dc44-4bdd-b627-2ad551109cf9
@@ -3389,23 +3427,22 @@ version = "0.9.1+5"
 # ╟─d8512b16-84f5-4b0a-a7de-3bffb3367242
 # ╟─05d62c11-9bbf-4b4d-bdf0-b43685e33f1c
 # ╟─56ac5f27-682a-42f7-99ea-7882f29506fb
-# ╠═18cbefa1-d451-47a7-9e75-b00bbfa2f78a
+# ╟─18cbefa1-d451-47a7-9e75-b00bbfa2f78a
+# ╟─56683a3f-cab1-478a-a4fa-25c7a5df3ce6
 # ╠═ee1f546d-2755-48e2-b18c-17e7d1c55298
-# ╟─aa4bd689-a3b4-4fea-9242-1a43ce5bbb17
-# ╠═2d1114cd-0d7e-470c-8313-a6229367c7c9
 # ╟─4718a5e0-c28e-4ea2-8e3c-d651740ea344
 # ╠═596d95ef-8c84-4e3e-a5a5-bde5c50518b7
-# ╠═f0bb963d-6f7b-452a-9584-8e010ff37ca8
 # ╠═98eb52ed-d4df-4e20-8ca2-3ae7b50e1999
-# ╟─3566b173-ae10-4b65-83a0-d040e802d181
+# ╠═3566b173-ae10-4b65-83a0-d040e802d181
 # ╟─a87ee29b-a9bb-472d-a9a3-51224e0a1bdd
-# ╟─990b6d78-4650-4665-af61-22fc53fb50b7
+# ╠═990b6d78-4650-4665-af61-22fc53fb50b7
+# ╠═d61157fc-b565-4e61-9d55-4199745c5b05
 # ╠═f62813e2-fed3-4b53-a201-bfe9e7f0bfc0
 # ╟─084c08df-f535-496d-b578-2a83f7b9082b
 # ╠═66b45f66-285c-47eb-971b-5593156d3809
 # ╟─0c6264c1-9dad-4b27-8a52-02123880c4cb
 # ╟─1dd01920-0da2-406c-9bd2-10409b38321c
-# ╠═813feb02-4c08-482d-a033-56531f0e1d1b
+# ╟─813feb02-4c08-482d-a033-56531f0e1d1b
 # ╟─afeba502-4a7e-4f7a-b1bb-d4f617763ca5
 # ╟─cc045caa-5293-47a8-bbc5-f174ab86cb2b
 # ╟─cd5ccc7d-3113-4db3-bf64-1f0cb8a1e249
@@ -3428,24 +3465,20 @@ version = "0.9.1+5"
 # ╟─bab915c5-61c1-47f3-9211-87ecb552734d
 # ╟─4c31b1a5-adf8-42ae-8f34-f371274c61e1
 # ╠═8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
-# ╟─927a65ba-0637-4314-9836-794f86719be5
 # ╟─9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 # ╟─e9f57d8a-e13a-472d-a567-790cab0e7c1b
 # ╟─4d21be1f-a5e8-405d-9d54-5a0147a202da
 # ╟─cafa6163-7b7f-456b-ba28-816ad9fbefc9
-# ╟─1ed35dc3-c604-450a-9218-a49a9b6df84b
+# ╠═88839489-e6ec-4ff4-9d79-cd9da526e35c
+# ╠═1ed35dc3-c604-450a-9218-a49a9b6df84b
 # ╟─6837ceea-9d9e-45c5-9f18-f42784227463
-# ╟─68b2baf3-cc88-45ef-a346-0e731449b00b
+# ╠═68b2baf3-cc88-45ef-a346-0e731449b00b
 # ╠═5bac64d2-36ed-493c-b4a5-527fa5c336be
-# ╠═03905524-ba7d-4ea5-8c3e-0539c29d8668
-# ╠═d28d255e-bcb9-4764-a719-9f361a8db915
-# ╠═3fd53180-5822-49a2-82f2-2a9e974ff239
-# ╠═de0b3b9f-0d64-4d5e-a80f-30b207a97b4d
 # ╟─7f427ca1-9311-4a52-936b-0f0e23fd8be7
 # ╠═bcddd86e-28a0-4df9-836d-ba985248e889
 # ╠═2ca23b00-4c41-4cb6-a6af-331e12c814de
+# ╠═cf8d2ff2-0bac-44ef-9c2c-1e4fe118ed0b
 # ╠═a6bc01d8-2dbb-453c-8dce-92cbc8c015a7
-# ╠═394fb25b-7a09-4791-b8fd-92c5ca9903cc
 # ╠═30c53681-703e-4c0e-9c18-01b04d232ac3
 # ╠═e0716bcb-45ed-4b9b-bd3a-1e48d06af32b
 # ╠═44751276-26d9-421c-8096-a1bf422d6c04

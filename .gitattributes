@@ -1,0 +1,1 @@
+building_footprints* filter=lfs diff=lfs merge=lfs -text

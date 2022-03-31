@@ -13,7 +13,7 @@
 # energy consumption data (annually). We need this to filter for individual buildings and link the BIN number
 # 2020 - https://data.cityofnewyork.us/Environment/Energy-and-Water-Data-Disclosure-for-Local-Law-84-/usc3-8zwd
 
-# weather - noaa daily summaries
+# weather - noaa daily summaries. File is called weather_nyc_2020.csv
 # https://www.ncdc.noaa.gov/cdo-web/datasets/GHCND/locations/CITY:US360019/detail
 
 # weather - central park, which I'm using to discover acronym meanings
