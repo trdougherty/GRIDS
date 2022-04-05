@@ -30,6 +30,7 @@ begin
 	using LazySets
 	using ProgressMeter
 	using ColorSchemes: flag
+	using LoopVectorization 
 	
 	color_scheme = cgrad(:matter, 9, categorical = true)
 end;
@@ -981,20 +982,20 @@ begin
 end
 
 # ╔═╡ d61157fc-b565-4e61-9d55-4199745c5b05
-microsoft_footprints
+nrow(buildings_with_data)
 
 # ╔═╡ f62813e2-fed3-4b53-a201-bfe9e7f0bfc0
 begin
 	test_district # this is just to trigger this cell when district is changed
-	building_footprint_match = []
+	building_footprint_match = Vector{Union{Missing, Int64}}(undef, nrow(buildings_with_data))
 	for (building_index, building_point) = enumerate(eachrow(buildings_with_data))
 		for (footprint_index,footprint) in enumerate(eachrow(microsoft_footprints))
 			if GeoDataFrames.contains(footprint.geom, building_point.geom_point)
-				push!(building_footprint_match, footprint_index)
+				building_footprint_match[building_index] = footprint_index
 				@goto end_building_logic
 			end
 		end
-		push!(building_footprint_match, missing)
+		building_footprint_match[building_index] = missing
 		@label end_building_logic
 	end
 end	
@@ -1110,6 +1111,9 @@ length(streetview_points)
 # ╔═╡ d94975d9-bb0b-4363-ad73-18f40f64fef2
 nrow(streetview)
 
+# ╔═╡ 6cfc7fd6-a4ae-45cf-8c28-6514fb4cecb9
+length(buildings_footprint.footprint_bubble)
+
 # ╔═╡ 5c76d3ce-913d-4dd4-875c-c8f693b0d337
 md"""
 So for every building, I'm going to check which points the bubble contains
@@ -1120,23 +1124,17 @@ begin
 	test_district
 	border_radius
 	function streetview_map(streetview_points, footprint_bubbles)
-		building_streetview_map = []
-		building_streetview_panos::Vector{Vector{String}} = []
-		for building_bubble in footprint_bubbles
+		building_streetview_map = Vector{Vector{Int64}}(undef, length(footprint_bubbles))
+		building_streetview_panos = Vector{Vector{String}}(undef, length(footprint_bubbles))
+		for (bubble_index,building_bubble) ∈ enumerate(footprint_bubbles)
 			building_streetview_points_index = []
-			for (index, streetview_point) in enumerate(streetview_points)
+			for (index, streetview_point) ∈ enumerate(streetview_points)
 				if GeoDataFrames.contains(building_bubble, streetview_point)
 					push!(building_streetview_points_index, index)
 				end
 			end
-			push!(
-				building_streetview_map,
-				building_streetview_points_index
-			)
-			push!(
-				building_streetview_panos,
-				streetview.pano_id[building_streetview_points_index]
-			)
+			building_streetview_map[bubble_index] = building_streetview_points_index
+			building_streetview_panos[bubble_index] = streetview.pano_id[building_streetview_points_index]
 		end
 	return (building_streetview_panos, building_streetview_map)
 	end
@@ -1353,6 +1351,7 @@ GeoStats = "dcc97b0b-8ce5-5539-9008-bb190f959ef6"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LazySets = "b4f0291d-fe17-52bc-9479-3d1a343d9043"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -1377,6 +1376,7 @@ GeoStats = "~0.31.2"
 GeometryBasics = "~0.4.2"
 JSON = "~0.21.3"
 LazySets = "~1.56.1"
+LoopVectorization = "~0.12.104"
 Missings = "~1.0.2"
 Plots = "~1.27.1"
 PlutoUI = "~0.7.37"
@@ -1463,6 +1463,12 @@ git-tree-sha1 = "4c10eee4af024676200bc7752e536f858c6b8f93"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.3.1"
 
+[[BitTwiddlingConvenienceFunctions]]
+deps = ["Static"]
+git-tree-sha1 = "28bbdbf0354959db89358d1d79d421ff31ef0b5e"
+uuid = "62783981-4cbd-42fc-bca8-16325de8dc4b"
+version = "0.1.3"
+
 [[Blosc]]
 deps = ["Blosc_jll"]
 git-tree-sha1 = "310b77648d38c223d947ff3f50f511d08690b8d5"
@@ -1491,6 +1497,12 @@ deps = ["Dates", "Printf"]
 git-tree-sha1 = "bca6cb6ee746e6485ca4535f6cc29cf3579a0f20"
 uuid = "179af706-886a-5703-950a-314cd64e0468"
 version = "0.1.1"
+
+[[CPUSummary]]
+deps = ["IfElse", "Static"]
+git-tree-sha1 = "48e01b22ef077b07541309652f697595f8decf25"
+uuid = "2a0fbf3d-bb9c-48f3-b0a9-814d99fd7ab9"
+version = "0.1.18"
 
 [[CRlibm]]
 deps = ["CRlibm_jll"]
@@ -1550,6 +1562,12 @@ deps = ["OffsetArrays"]
 git-tree-sha1 = "0598a9ea22c65bfde7f07f21485ebf60deee3302"
 uuid = "7a955b69-7140-5f4e-a0ed-f168c5e2e749"
 version = "1.3.0"
+
+[[CloseOpenIntervals]]
+deps = ["ArrayInterface", "Static"]
+git-tree-sha1 = "f576084239e6bdf801007c80e27e2cc2cd963fe0"
+uuid = "fb6a15b2-703c-40df-9091-08a04967cfa9"
+version = "0.1.6"
 
 [[Clustering]]
 deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "SparseArrays", "Statistics", "StatsBase"]
@@ -2112,6 +2130,24 @@ git-tree-sha1 = "de4a6f9e7c4710ced6838ca906f81905f7385fd6"
 uuid = "a1b4810d-1bce-5fbd-ac56-80944d57a21f"
 version = "0.2.0"
 
+[[HostCPUFeatures]]
+deps = ["BitTwiddlingConvenienceFunctions", "IfElse", "Libdl", "Static"]
+git-tree-sha1 = "18be5268cf415b5e27f34980ed25a7d34261aa83"
+uuid = "3e5b6fbb-0976-4d2c-9146-d79de83f2fb0"
+version = "0.1.7"
+
+[[Hwloc]]
+deps = ["Hwloc_jll"]
+git-tree-sha1 = "92d99146066c5c6888d5a3abc871e6a214388b91"
+uuid = "0e44f5e4-bd66-52a0-8798-143a42290a1d"
+version = "2.0.0"
+
+[[Hwloc_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "303d70c961317c4c20fafaf5dbe0e6d610c38542"
+uuid = "e33a78d0-f292-5ffc-b300-72abe9b543c8"
+version = "2.7.1+0"
+
 [[HypergeometricFunctions]]
 deps = ["DualNumbers", "LinearAlgebra", "SpecialFunctions", "Test"]
 git-tree-sha1 = "65e4589030ef3c44d3b90bdc5aac462b4bb05567"
@@ -2303,6 +2339,12 @@ git-tree-sha1 = "6f14549f7760d84b2db7a9b10b88cd3cc3025730"
 uuid = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 version = "0.15.14"
 
+[[LayoutPointers]]
+deps = ["ArrayInterface", "LinearAlgebra", "ManualMemory", "SIMDTypes", "Static"]
+git-tree-sha1 = "b651f573812d6c36c22c944dd66ef3ab2283dfa1"
+uuid = "10f19ff3-798f-405d-979b-55457f8fc047"
+version = "0.1.6"
+
 [[LazyArtifacts]]
 deps = ["Artifacts", "Pkg"]
 uuid = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
@@ -2416,6 +2458,12 @@ version = "0.3.10"
 [[Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[LoopVectorization]]
+deps = ["ArrayInterface", "CPUSummary", "ChainRulesCore", "CloseOpenIntervals", "DocStringExtensions", "ForwardDiff", "HostCPUFeatures", "IfElse", "LayoutPointers", "LinearAlgebra", "OffsetArrays", "PolyesterWeave", "SIMDDualNumbers", "SLEEFPirates", "SpecialFunctions", "Static", "ThreadingUtilities", "UnPack", "VectorizationBase"]
+git-tree-sha1 = "0ad02fdd8009e42eb52fcef08a4130465e055ebc"
+uuid = "bdcacae8-1622-11e9-2a5c-532679323890"
+version = "0.12.104"
+
 [[LossFunctions]]
 deps = ["InteractiveUtils", "LearnBase", "Markdown", "RecipesBase", "StatsBase"]
 git-tree-sha1 = "0f057f6ea90a84e73a8ef6eebb4dc7b5c330020f"
@@ -2445,6 +2493,11 @@ deps = ["Markdown", "Random"]
 git-tree-sha1 = "3d3e902b31198a27340d0bf00d6ac452866021cf"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.9"
+
+[[ManualMemory]]
+git-tree-sha1 = "bcaef4fc7a0cfe2cba636d84cda54b5e4e4ca3cd"
+uuid = "d125e4d3-2237-4719-b19c-fa641b8a4667"
+version = "0.1.8"
 
 [[MappedArrays]]
 git-tree-sha1 = "e8b359ef06ec72e8c030463fe02efe5527ee5142"
@@ -2683,6 +2736,12 @@ git-tree-sha1 = "263d83efd53ec54a32f568550cea951be4942bd4"
 uuid = "e61b41b6-3414-4803-863f-2b69057479eb"
 version = "0.3.14"
 
+[[PolyesterWeave]]
+deps = ["BitTwiddlingConvenienceFunctions", "CPUSummary", "IfElse", "Static", "ThreadingUtilities"]
+git-tree-sha1 = "7e597df97e46ffb1c8adbaddfa56908a7a20194b"
+uuid = "1d0040c9-8b98-4ee7-8388-3f51789ca0ad"
+version = "0.1.5"
+
 [[PolygonInbounds]]
 git-tree-sha1 = "8d50c96f4ba5e1e2fd524116b4ef97b29d5f77da"
 uuid = "e4521ec6-8c1d-418e-9da2-b3bc4ae105d6"
@@ -2822,6 +2881,23 @@ version = "0.2.1"
 
 [[SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+
+[[SIMDDualNumbers]]
+deps = ["ForwardDiff", "IfElse", "SLEEFPirates", "VectorizationBase"]
+git-tree-sha1 = "62c2da6eb66de8bb88081d20528647140d4daa0e"
+uuid = "3cdde19b-5bb0-4aaf-8931-af3e248e098b"
+version = "0.1.0"
+
+[[SIMDTypes]]
+git-tree-sha1 = "330289636fb8107c5f32088d2741e9fd7a061a5c"
+uuid = "94e857df-77ce-4151-89e5-788b33177be4"
+version = "0.1.0"
+
+[[SLEEFPirates]]
+deps = ["IfElse", "Static", "VectorizationBase"]
+git-tree-sha1 = "d4c366b135fc2e1af7a000473e08edc5afd94819"
+uuid = "476501e8-09a2-5ece-8869-fb82de89a1fa"
+version = "0.6.31"
 
 [[SQLite_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
@@ -3029,6 +3105,12 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[[ThreadingUtilities]]
+deps = ["ManualMemory"]
+git-tree-sha1 = "f8629df51cab659d70d2e5618a430b4d3f37f2c3"
+uuid = "8290d209-cae3-49c0-8002-c8c24d57dab5"
+version = "0.5.0"
+
 [[TranscodingStreams]]
 deps = ["Random", "Test"]
 git-tree-sha1 = "216b95ea110b5972db65aa90f88d8d89dcb8851c"
@@ -3092,6 +3174,12 @@ deps = ["Distances", "GeoStatsBase", "InteractiveUtils", "LinearAlgebra", "Meshe
 git-tree-sha1 = "9c64543903f0c7baebfdefa0ad3d494722aef094"
 uuid = "04a0146e-e6df-5636-8d7f-62fa9eb0b20c"
 version = "0.14.3"
+
+[[VectorizationBase]]
+deps = ["ArrayInterface", "CPUSummary", "HostCPUFeatures", "Hwloc", "IfElse", "LayoutPointers", "Libdl", "LinearAlgebra", "SIMDTypes", "Static"]
+git-tree-sha1 = "83dde373d2695470a6e8abd1380ec4b5e0dd935e"
+uuid = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
+version = "0.21.27"
 
 [[VersionParsing]]
 git-tree-sha1 = "58d6e80b4ee071f5efd07fda82cb9fbe17200868"
@@ -3478,6 +3566,7 @@ version = "0.9.1+5"
 # ╟─acd39a29-e8b9-405a-b37d-fe6b17d210dd
 # ╠═502364d2-456a-4140-bbf9-70b9dc7363d8
 # ╠═d94975d9-bb0b-4363-ad73-18f40f64fef2
+# ╠═6cfc7fd6-a4ae-45cf-8c28-6514fb4cecb9
 # ╟─5c76d3ce-913d-4dd4-875c-c8f693b0d337
 # ╠═2b7cc18f-8f6c-4163-8da0-3774bf853a4f
 # ╟─f857d45f-767a-4c91-96fd-21d944070fbd
