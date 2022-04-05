@@ -20,6 +20,7 @@ begin
 	using VoronoiCells
 	using GeometryBasics
 	using Dates
+	using JSON
 	using StatsBase
 	using PlutoUI
 	using GeoFormatTypes
@@ -121,9 +122,6 @@ begin
 		# nothing right now
 	end
 end;
-
-# ╔═╡ 68884f19-bca4-40b0-8a6a-91783e9bc7ac
-
 
 # ╔═╡ 9398797a-82f1-42b2-ae54-5392c3ffb437
 begin
@@ -596,6 +594,9 @@ Plots.plot(
 )
 end
 
+# ╔═╡ 3635135f-85a4-4b9d-b0ae-e7ebb325bd10
+nyc_geomonthly_2020
+
 # ╔═╡ caec5908-a4c6-4bc0-8af3-6e098892e24b
 md"""
 Finally, cleaning up the weather data a bit so that we have daily average statistics for each month. Energy data:
@@ -919,6 +920,8 @@ Checking out what some of the metadata looks like for the microsoft set
 # ╔═╡ ee1f546d-2755-48e2-b18c-17e7d1c55298
 begin
 	microsoft_footprints = GeoDataFrames.read(microsoft_building_footprints_path)
+
+	# This puts the most recent footprints identities first
 	microsoft_footprints = @chain microsoft_footprints begin
 		sort(:release, rev=true)
 	end
@@ -1149,7 +1152,7 @@ So now we have a mapping from each building to streetview images nearby the buil
 buildings_footprint.streetview_mapping = building_streetview_map
 
 # ╔═╡ 8f94298d-533d-4252-b0e8-180808719a25
-jpoint = 15
+jpoint = 10
 
 # ╔═╡ bab915c5-61c1-47f3-9211-87ecb552734d
 # Now we can visualize the results a bit
@@ -1187,6 +1190,12 @@ But I'm also going to take the opportunity to add the pano IDs as a column which
 
 # ╔═╡ 8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
 buildings_footprint.streetview_panos = building_streetview_panos
+
+# ╔═╡ f5a574c6-2e4e-4e78-80a7-34294fc2cc40
+building_streetview_panos[1]
+
+# ╔═╡ a9dfb706-1b25-4e0f-994c-d9ffb6f0bc6d
+
 
 # ╔═╡ 9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 md"""
@@ -1259,13 +1268,23 @@ begin
 	if toyset == false
 		test = filter(
 			x -> GeoDataFrames.contains(selected_council_footprint, x.footprint), data_full)
-		select!(test, Not(:geom_point))
+		select!(test, Not([:geom_point, :footprint]))
 		train = filter(
 			x -> !GeoDataFrames.contains(selected_council_footprint, x.footprint), data_full)
-		select!(train, Not(:geom_point))
-	
-		GeoDataFrames.write("test.geojson", test; layer_name="data", geom_column=:footprint)
-		# GeoDataFrames.write("train.geojson", train; layer_name="data", geom_column=:footprint)
+		select!(train, Not([:geom_point, :footprint]))
+
+		open("test.json", "w") do f
+	        write(f, JSON.json(test))
+	    end
+		open("train.json", "w") do f
+	        write(f, JSON.json(train))
+	    end
+	else
+		data_write = select(data_full, Not([:geom_point, :footprint]))
+		# GeoDataFrames.write("practice.geojson", data_write; layer_name="data")
+		open("practice.json", "w") do f
+	        write(f, JSON.json(data_write))
+	     end
 	end
 end;
 
@@ -1332,6 +1351,7 @@ GeoFormatTypes = "68eda718-8dee-11e9-39e7-89f7f65f511f"
 GeoJSON = "61d90e0f-e114-555e-ac52-39dfb47a3ef9"
 GeoStats = "dcc97b0b-8ce5-5539-9008-bb190f959ef6"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LazySets = "b4f0291d-fe17-52bc-9479-3d1a343d9043"
 Missings = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
@@ -1355,6 +1375,7 @@ GeoFormatTypes = "~0.3.0"
 GeoJSON = "~0.5.1"
 GeoStats = "~0.31.2"
 GeometryBasics = "~0.4.2"
+JSON = "~0.21.3"
 LazySets = "~1.56.1"
 Missings = "~1.0.2"
 Plots = "~1.27.1"
@@ -3337,7 +3358,6 @@ version = "0.9.1+5"
 # ╠═c8ed3ef3-eb49-45c3-933d-6935d8ea14eb
 # ╟─e2e418ad-9fcf-4c8b-b20f-383efe07f094
 # ╠═e2ed76ac-9b7d-4e9c-9b14-48b4feb9edeb
-# ╠═68884f19-bca4-40b0-8a6a-91783e9bc7ac
 # ╠═9398797a-82f1-42b2-ae54-5392c3ffb437
 # ╠═5e8216f3-8a86-4d6e-8444-11ba63785c1a
 # ╟─1d6bd5a3-0b3d-4870-b5bb-7a39f6494394
@@ -3395,6 +3415,7 @@ version = "0.9.1+5"
 # ╠═ccfc42a6-a122-4ddb-b5a2-f7cd7101789e
 # ╟─cc6f26f6-3db6-41b4-9e71-b6d48592c410
 # ╠═6b205e8b-f212-4668-a31e-c5af409c6e93
+# ╠═3635135f-85a4-4b9d-b0ae-e7ebb325bd10
 # ╟─caec5908-a4c6-4bc0-8af3-6e098892e24b
 # ╠═c3d1cadb-c3d3-4452-aa8a-1f50cdee1448
 # ╟─dc647053-fdef-49c1-98e7-6292b9ac55c7
@@ -3465,6 +3486,8 @@ version = "0.9.1+5"
 # ╟─bab915c5-61c1-47f3-9211-87ecb552734d
 # ╟─4c31b1a5-adf8-42ae-8f34-f371274c61e1
 # ╠═8452a50c-1f3d-4407-bfd1-b3e9e50bb5dc
+# ╠═f5a574c6-2e4e-4e78-80a7-34294fc2cc40
+# ╠═a9dfb706-1b25-4e0f-994c-d9ffb6f0bc6d
 # ╟─9e8476f5-f39b-4961-86a0-7efd9e8bc9e8
 # ╟─e9f57d8a-e13a-472d-a567-790cab0e7c1b
 # ╟─4d21be1f-a5e8-405d-9d54-5a0147a202da

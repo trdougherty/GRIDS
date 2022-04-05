@@ -4,6 +4,9 @@ data/nyc/footprints/*
 data/nyc/weather/*
 data/nyc/photos/*
 
+# all of the weights and biases files
+src/wandb/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
