@@ -49,7 +49,7 @@ pl.seed_everything(seed)
 wandb_logger = WandbLogger(name='001', project='dbr')
 
 checkpoint_callback = ModelCheckpoint(
-    monitor="val/cvrmse",
+    monitor="val/electric/cvrmse",
     mode="min",
     filename='{epoch:02d}-{val_loss:.2f}',
     auto_insert_metric_name=True
