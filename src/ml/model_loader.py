@@ -1,75 +1,69 @@
 import torch.nn as nn
 import torch
 import pytorch_lightning as pl
+import wandb
+
+from ml.errors import error_suite
+# from ml.models import graph_mean
 
 class ModelLoader(pl.LightningModule):
-    def __init__(self, lr: float = 2e-3, num_workers: int = 8, batch_size: int = 16):
+    def __init__(self, input_size:int, output_size:int = 2, lr: float = 2e-3, batch_size: int = 16, **kwargs):
         super().__init__()
         self.lr = lr
-        self.num_workers = num_workers
         self.batch_size = batch_size
         self.leaky = nn.LeakyReLU()
         self.dropout = nn.Dropout2d(0.5)
+        self.loss_function = nn.SmoothL1Loss()
 
-          # FC Tabular
-        self.ln6 = nn.Linear(2, 5)
-        self.ln7 = nn.Linear(5, 10)
-       
-        # Final
-        self.ln10 = nn.Linear(10, 1)
+        self.neuralnet = nn.Sequential(
+            nn.BatchNorm1d(input_size),
+            nn.Linear(input_size, 200),
+            nn.BatchNorm1d(200),
+            nn.Linear(200,200),
+            nn.BatchNorm1d(200),
+            nn.Linear(200,200),
+            nn.BatchNorm1d(200),
+            nn.Linear(200,2)
+        )
+
+    def _loss(self, y_pred, y):
+        y_pred = y_pred.float()
+        y = y.float()
+        return self.loss_function(y_pred, y)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters, lr=(self.lr))
+        return torch.optim.Adam(self.parameters(), lr=(self.lr))
 
-    def forward(self, tab):
-        tab = self.ln6(tab)
-        tab = self.leaky(tab)
-        tab = self.ln7(tab)
-        tab = self.leaky(tab)
-
-        return self.ln10(tab)
+    def forward(self, x):
+        return self.neuralnet(x)
 
     def training_step(self, batch, batch_idx):
-        tabular, y = batch
+        x, y = batch
+        y_pred = self(x)
+        loss = self._loss(y_pred, y)
 
-        criterion = nn.SmoothL1Loss()
+        errors = error_suite(y_pred, y)
+        self.log(errors)
 
-        y_pred = torch.flatten(self(tabular))
-        y_pred = y_pred.double()
-
-        loss = criterion(y_pred, y)
-
-        tensorboard_logs = {"train_loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        tabular, y = batch
+        x, y = batch
+        y_pred = self(x)
 
-        criterion = nn.SmoothL1Loss()
-        y_pred = torch.flatten(self(tabular))
-        y_pred = y_pred.double()
+        loss = self._loss(y_pred, y)
+        errors = error_suite(y_pred, y)
+        # self.log(errors)
 
-        val_loss = criterion(y_pred, y)
-
-        return {"val_loss": val_loss}
-
-    def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        tensorboard_logs = {"val_loss": avg_loss}
-        return {"val_loss": avg_loss, "log": tensorboard_logs}
+        return loss
 
     def test_step(self, batch, batch_idx):
-        tabular, y = batch
-
-        loss = nn.SmoothL1Loss()
-        y_pred = torch.flatten(self(tabular))
-        y_pred = y_pred.double()
+        x, y = batch
+        y_pred = self(x)
         # y_pred = self.forward(z19,z20,tabular)
-        test_loss = loss(y_pred, y)
+        loss = self._loss(y_pred, y)
 
-        return {"test_loss": test_loss}
+        errors = error_suite(y_pred, y)
+        # self.log(errors)
 
-    def test_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["test_loss"] for x in outputs]).mean()
-        logs = {"test_loss": avg_loss}
-        return {"test_loss": avg_loss, "log": logs, "progress_bar": logs}
+        return loss
