@@ -2,7 +2,7 @@ batch_size: 8
 data_locations:
   json_file: ../practice.json
   photos_ids: ../data/nyc/photos/processed/pano_ids.txt
-  photos_matrix: ../dbr/data/nyc/photos/processed/ResNet
+  photos_matrix: ../data/nyc/photos/processed/ResNet
 epochs: 20
 gpus: 1
 lr: 0.08
