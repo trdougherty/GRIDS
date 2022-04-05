@@ -43,9 +43,9 @@ class ModelLoader(pl.LightningModule):
         y_pred = self(x)
         loss = self._loss(y_pred, y)
 
-        self.log({"train/cvstd": cvstd(y_pred, y)})
-        self.log({"train/cvrmse": cvrmse(y_pred, y)})
-        self.log({"train/nmbe": nmbe(y_pred, y)})
+        self.log("train/cvstd", cvstd(y_pred, y))
+        self.log("train/cvrmse", cvrmse(y_pred, y))
+        self.log("train/nmbe", nmbe(y_pred, y))
 
         return loss
 
@@ -55,9 +55,9 @@ class ModelLoader(pl.LightningModule):
 
         loss = self._loss(y_pred, y)
 
-        self.log({"val/cvstd": cvstd(y_pred, y)})
-        self.log({"val/cvrmse": cvrmse(y_pred, y)})
-        self.log({"val/nmbe": nmbe(y_pred, y)})
+        self.log("val/cvstd", cvstd(y_pred, y))
+        self.log("val/cvrmse", cvrmse(y_pred, y))
+        self.log("val/nmbe", nmbe(y_pred, y))
 
         return loss
 
@@ -67,8 +67,8 @@ class ModelLoader(pl.LightningModule):
         # y_pred = self.forward(z19,z20,tabular)
         loss = self._loss(y_pred, y)
 
-        self.log({"test/cvstd": cvstd(y_pred, y)})
-        self.log({"test/cvrmse": cvrmse(y_pred, y)})
-        self.log({"test/nmbe": nmbe(y_pred, y)})
+        self.log("test/cvstd", cvstd(y_pred, y))
+        self.log("test/cvrmse", cvrmse(y_pred, y))
+        self.log("test/nmbe", nmbe(y_pred, y))
 
         return loss
