@@ -15,3 +15,5 @@ It should have all of the annotations needed to go step by step through the data
 7. Satellite photos - a high resolution image is comissioned based on the bounding box region
 8. Each "sub" image is then captured by simply indexing the high resolution image with a box around each building location
 
+## Validation of accuracy
+The error terms were created using the guidance of [this ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf)
