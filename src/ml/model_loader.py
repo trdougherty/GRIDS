@@ -13,7 +13,7 @@ class ModelLoader(pl.LightningModule):
         self.batch_size = batch_size
         self.leaky = nn.LeakyReLU()
         self.dropout = nn.Dropout2d(0.5)
-        self.loss_function = nn.SmoothL1Loss()
+        self.loss_function = nn.MSELoss()
 
 
         self.neuralnet = nn.Sequential(
@@ -43,9 +43,13 @@ class ModelLoader(pl.LightningModule):
         y_pred = self(x)
         loss = self._loss(y_pred, y)
 
-        self.log("train/cvstd", cvstd(y_pred, y))
-        self.log("train/cvrmse", cvrmse(y_pred, y))
-        self.log("train/nmbe", nmbe(y_pred, y))
+        self.log("train/electric/cvstd", cvstd(y_pred[:,0], y[:,0]))
+        self.log("train/electric/cvrmse", cvrmse(y_pred[:,0], y[:,0]))
+        self.log("train/electric/nmbe", nmbe(y_pred[:,0], y[:,0]))
+
+        self.log("train/gas/cvstd", cvstd(y_pred[:,1], y[:,1]))
+        self.log("train/gas/cvrmse", cvrmse(y_pred[:,1], y[:,1]))
+        self.log("train/gas/nmbe", nmbe(y_pred[:,1], y[:,1]))
 
         return loss
 
@@ -55,9 +59,13 @@ class ModelLoader(pl.LightningModule):
 
         loss = self._loss(y_pred, y)
 
-        self.log("val/cvstd", cvstd(y_pred, y))
-        self.log("val/cvrmse", cvrmse(y_pred, y))
-        self.log("val/nmbe", nmbe(y_pred, y))
+        self.log("val/electric/cvstd", cvstd(y_pred[:,0], y[:,0]))
+        self.log("val/electric/cvrmse", cvrmse(y_pred[:,0], y[:,0]))
+        self.log("val/electric/nmbe", nmbe(y_pred[:,0], y[:,0]))
+
+        self.log("val/gas/cvstd", cvstd(y_pred[:,1], y[:,1]))
+        self.log("val/gas/cvrmse", cvrmse(y_pred[:,1], y[:,1]))
+        self.log("val/gas/nmbe", nmbe(y_pred[:,1], y[:,1]))
 
         return loss
 
@@ -67,8 +75,12 @@ class ModelLoader(pl.LightningModule):
         # y_pred = self.forward(z19,z20,tabular)
         loss = self._loss(y_pred, y)
 
-        self.log("test/cvstd", cvstd(y_pred, y))
-        self.log("test/cvrmse", cvrmse(y_pred, y))
-        self.log("test/nmbe", nmbe(y_pred, y))
+        self.log("test/electric/cvstd", cvstd(y_pred[:,0], y[:,0]))
+        self.log("test/electric/cvrmse", cvrmse(y_pred[:,0], y[:,0]))
+        self.log("test/electric/nmbe", nmbe(y_pred[:,0], y[:,0]))
+
+        self.log("test/gas/cvstd", cvstd(y_pred[:,1], y[:,1]))
+        self.log("test/gas/cvrmse", cvrmse(y_pred[:,1], y[:,1]))
+        self.log("test/gas/nmbe", nmbe(y_pred[:,1], y[:,1]))
 
         return loss

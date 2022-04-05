@@ -16,7 +16,7 @@ class DataCollector(Dataset):
         building_info = pd.read_json(json_file)
 
         # might want to change this later to a more generic integer based index
-        self.y = torch.FloatTensor(np.array(building_info.loc[:,["daily_gas", "daily_electric"]]))
+        self.y = torch.FloatTensor(np.array(building_info.loc[:,["daily_electric", "daily_gas"]]))
 
         # These are going to be all numeric terms which I can cast into a FloatTensor
         self.x = torch.FloatTensor(np.array(building_info.loc[:, [
