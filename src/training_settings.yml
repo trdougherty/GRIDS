@@ -1,8 +1,8 @@
 batch_size: 8
 data_locations:
-  json_file: /Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/practice.json
-  photos_ids: /Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/photos/processed/pano_ids.txt
-  photos_matrix: /Users/tomdougherty/Desktop/Work/Research/uil/postquals/dbr/data/nyc/photos/processed/ResNet
+  json_file: ../practice.json
+  photos_ids: ../data/nyc/photos/processed/pano_ids.txt
+  photos_matrix: ../dbr/data/nyc/photos/processed/ResNet
 epochs: 20
 lr: 0.08
 name: dbr_setup
