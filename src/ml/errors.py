@@ -12,13 +12,13 @@ def nmbe(y_pred, y, p:int=1):
     ### Provides the NMBE again, as defined by ASHRAE^
     return  torch.sum(y-y_pred) / ( (len(y)-p)*torch.mean(y) )
 
-def error_suite(y_pred, y):
-    cvstd_error = cvstd(y_pred, y)
-    cvrmse_error = cvrmse(y_pred, y)
-    nmbe_error = nmbe(y_pred, y)
+# def error_suite(y_pred, y):
+#     cvstd_error = cvstd(y_pred, y)
+#     cvrmse_error = cvrmse(y_pred, y)
+#     nmbe_error = nmbe(y_pred, y)
 
-    return {
-        "CV(STD)": cvstd_error,
-        "CV(RMSE)": cvrmse_error,
-        "NMBE": nmbe_error
-    }
+#     return {
+#         "CV(STD)": cvstd_error,
+#         "CV(RMSE)": cvrmse_error,
+#         "NMBE": nmbe_error
+#     }

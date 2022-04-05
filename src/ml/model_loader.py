@@ -3,7 +3,7 @@ import torch
 import pytorch_lightning as pl
 import wandb
 
-from ml.errors import error_suite
+from ml.errors import cvstd, cvrmse, nmbe 
 # from ml.models import graph_mean
 
 class ModelLoader(pl.LightningModule):
@@ -14,6 +14,7 @@ class ModelLoader(pl.LightningModule):
         self.leaky = nn.LeakyReLU()
         self.dropout = nn.Dropout2d(0.5)
         self.loss_function = nn.SmoothL1Loss()
+
 
         self.neuralnet = nn.Sequential(
             nn.BatchNorm1d(input_size),
@@ -42,8 +43,9 @@ class ModelLoader(pl.LightningModule):
         y_pred = self(x)
         loss = self._loss(y_pred, y)
 
-        errors = error_suite(y_pred, y)
-        self.log(errors)
+        self.log({"train/cvstd": cvstd(y_pred, y)})
+        self.log({"train/cvrmse": cvrmse(y_pred, y)})
+        self.log({"train/nmbe": nmbe(y_pred, y)})
 
         return loss
 
@@ -52,8 +54,10 @@ class ModelLoader(pl.LightningModule):
         y_pred = self(x)
 
         loss = self._loss(y_pred, y)
-        errors = error_suite(y_pred, y)
-        # self.log(errors)
+
+        self.log({"val/cvstd": cvstd(y_pred, y)})
+        self.log({"val/cvrmse": cvrmse(y_pred, y)})
+        self.log({"val/nmbe": nmbe(y_pred, y)})
 
         return loss
 
@@ -63,7 +67,8 @@ class ModelLoader(pl.LightningModule):
         # y_pred = self.forward(z19,z20,tabular)
         loss = self._loss(y_pred, y)
 
-        errors = error_suite(y_pred, y)
-        # self.log(errors)
+        self.log({"test/cvstd": cvstd(y_pred, y)})
+        self.log({"test/cvrmse": cvrmse(y_pred, y)})
+        self.log({"test/nmbe": nmbe(y_pred, y)})
 
         return loss
