@@ -17,6 +17,9 @@ end
 # ╔═╡ f37f6a97-a21e-48ff-afc3-b99aee6920e8
 using LoopVectorization
 
+# ╔═╡ 865a686f-a1b1-4299-873f-a9305a8a8d6d
+using GeoFormatTypes; const GFT = GeoFormatTypes
+
 # ╔═╡ 202766df-31c2-44af-b670-85f34e2fd196
 using PlutoUI
 
@@ -140,12 +143,15 @@ end
 
 # ╔═╡ 14dfb674-2794-4944-9117-1182ece26ffc
 begin
-	select!(unique_bbl_footprints, [:bbl,:bin])
-	unique_bbl_footprints.microsoft = building_footprint_match
+	co = select(unique_bbl_footprints, [:bbl,:bin])
+	co.microsoft = building_footprint_match
+	dropmissing!(co, :microsoft)
+	co.microsoft_geom = microsoft_footprints[co.microsoft,:].geom
+	select!(co, Not("microsoft"))
 end
 
-# ╔═╡ f6e0f794-01ef-4db8-8cff-1b62154a07a5
-CSV.write("footprint_match_nyc.csv", unique_bbl_footprints)
+# ╔═╡ a65f13fe-66c5-4ed8-8740-2c1d8dd6a2f6
+GeoDataFrames.write("microsoft_footprint_match_nyc.shp", co; layer_name="data", geom_column=:microsoft_geom, crs=GFT.EPSG(3857))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -155,6 +161,7 @@ CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 GeoDataFrames = "62cb38b5-d8d2-4862-a48e-6a340996859f"
+GeoFormatTypes = "68eda718-8dee-11e9-39e7-89f7f65f511f"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -165,6 +172,7 @@ CSV = "~0.10.4"
 Chain = "~0.4.10"
 DataFrames = "~1.3.2"
 GeoDataFrames = "~0.2.0"
+GeoFormatTypes = "~0.3.0"
 JSON = "~0.21.3"
 LoopVectorization = "~0.12.104"
 PlutoUI = "~0.7.38"
@@ -934,6 +942,7 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╔═╡ Cell order:
 # ╠═cf84dd6a-b560-11ec-10f4-456a5cabf24e
 # ╠═f37f6a97-a21e-48ff-afc3-b99aee6920e8
+# ╠═865a686f-a1b1-4299-873f-a9305a8a8d6d
 # ╠═202766df-31c2-44af-b670-85f34e2fd196
 # ╟─5d8358e2-121a-4407-8805-05a6ead5eb85
 # ╠═b7f8d612-1d3d-414f-8f94-27fb9154daa5
@@ -947,6 +956,6 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 # ╠═81c1d5cf-e0ae-4cfd-840b-592715819b3a
 # ╠═f5268e67-46bd-44b5-813d-66c43617543f
 # ╠═14dfb674-2794-4944-9117-1182ece26ffc
-# ╠═f6e0f794-01ef-4db8-8cff-1b62154a07a5
+# ╠═a65f13fe-66c5-4ed8-8740-2c1d8dd6a2f6
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
