@@ -1,2 +1,5 @@
 building_footprints* filter=lfs diff=lfs merge=lfs -text
 data/nyc/photos/processed/ResNet filter=lfs diff=lfs merge=lfs -text
+data/nyc/footprints/building_footprints.geojson filter=lfs diff=lfs merge=lfs -text
+data/nyc/energy/annually/Energy_and_Water_Data_Disclosure_for_Local_Law_84_2021__Data_for_Calendar_Year_2020_.csv filter=lfs diff=lfs merge=lfs -text
+data/nyc/footprints/NewYorkCity.geojson filter=lfs diff=lfs merge=lfs -text
