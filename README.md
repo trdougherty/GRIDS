@@ -1,19 +1,57 @@
 # dbr
-Creation and Data pipeline for developing dbrs
+Creation and Data pipeline for developing dense building representations (dbrs). References to all of the necessary files for preprocessing the data can be found in _sources.yml_. The root of each dataset will be distinguished by the following parameter:
 
-### Data Preprocessing
-All of the data processing is done in a single Julia notebook (Pluto) called data_prep.jl. Reference that for all of the data prep.
-It should have all of the annotations needed to go step by step through the data cleaning and preparation.
+**city:** _path/to/city/directory/city\_sources.yml_
 
-### Data Cleaning Pipeline
-1. Initial Weather Data is loaded from NOAA
-2. Weather Data is cleaned and anomalies are detected and dropped
-3. Building Data is loaded - in our case this comes from the list of buildings in New York City
-4. A region of interest is defined as a bounding box which surrounds our buildings
-5. This bounding box is then "broken" into weather zones using a voronoi paritioning scheme with the good weather stations
-6. Each building is then assigned to one of the weather zones, based on the containing region
-7. Satellite photos - a high resolution image is comissioned based on the bounding box region
-8. Each "sub" image is then captured by simply indexing the high resolution image with a box around each building location
+### Energy and Footprints
+Data should be processed using the format defined by the macro_climate utility, with two files for each region.
+
+**energy:** _path/to/city/directory/energy.csv_
+
+_Energy Dataset:_
+| Footprint ID | Year | Energy (MWh) | Area (m<sup>2</sup>) |
+| :---         |     ---:      |          ---: | ---: |
+| 15842106277983404298   | 2016     | 3521.06    | 6503.21 |
+| 5206367234345948710   | 2018     | 2277.87    | 10611.11 |
+
+**footprints:** _path/to/city/directory/footprints.geojson_
+
+_Footprints Data:_
+| ID | Geometry |
+| :---         |     :---:      |
+| 15842106277983404298 | POLYGON ((...)) |
+| 5206367234345948710 | POLYGON ((...)) |
+
+### Streetlevel Imagery
+We additionally need two more files with information about the adjacent streetlevel data. We utilize the architecture of OneFormer to run panoptic segmentation, which outputs two files for each streetview image. These are saved as a json format, with identifiers mapping the same classes used in the cityscapes training set. Compressing these json files into a dataframe will provide a structure which looks like this:
+
+**panoptic-data:** _path/to/city/directory/images/data.csv_
+
+_Streetview Data - postprocessed:_
+| ID | Sky | Vegetation | Road |
+| :---         |     ---:      | ---: | ---: |
+| 2110718573383811636 | 0.24 | 0.11 | 0.22 |
+| 9501152238164954080 | 0.32 | 0.07 | 0.15 |
+
+
+We additionally need a secondary datasource with geographic information for each street level image, to then identify which streetview images will be immediately associated with the building of interest:
+
+**panoptic-locations:** _path/to/city/directory/images/locations.geojson_
+
+_Streetview Data - geolocated:_
+| ID | Geometry |
+| :---         |     :---:      |
+| 2110718573383811636 | POINT ((...)) |
+| 9501152238164954080 | POINT ((...)) |
+
+
+### Data Processing Steps
+1. Collection of Energy Data, Footprints, and Streetview Imagery
+2. Preprocessing of images:  `python src\preprocess.py city_sources.yml`
+3. Geospatial joins and links definitions between images: `python src\links.py city_sources.yml`
+4. Training: `python src\train.py [city(s)]`
+5. Inference: `python src\inference.py [city(s)]`
 
 ## Validation of accuracy
-The error terms were created using the guidance of [this ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf)
+Validation used is RMSE, as the validation metrics found in [the ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf) are defined for monthly and hourly predictions.
+<!-- The error terms were created using the guidance of [this ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf) -->
