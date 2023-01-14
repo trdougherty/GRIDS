@@ -47,10 +47,11 @@ _Streetview Data - geolocated:_
 
 ### Data Processing Steps
 1. Collection of Energy Data, Footprints, and Streetview Imagery
-2. Preprocessing of images:  `python src\preprocess.py city_sources.yml`
-3. Geospatial joins and links definitions between images: `python src\links.py city_sources.yml`
-4. Training: `python src\train.py [city(s)]`
-5. Inference: `python src\inference.py [city(s)]`
+2. Download and unpack the panoptic segmentation machine provided by OneFormer `unzip src/modeldata.zip`
+2. Preprocessing of images:  `python src/preprocess.py city_sources.yml`
+3. Geospatial joins and links definitions between images: `python src/links.py city_sources.yml`
+4. Training: `python src/train.py [city(s)]`
+5. Inference: `python src/inference.py [city(s)]`
 
 ## Validation of accuracy
 Validation used is RMSE, as the validation metrics found in [the ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf) are defined for monthly and hourly predictions.
