@@ -165,7 +165,6 @@ def graph(
 
     # now to finally construct the graph and hand it off
     data = HeteroData()
-
     data['pano'].x = node_tensor.type(torch.FloatTensor)
     data['footprint'].x = footprint_tensor.type(torch.FloatTensor)
     data['footprint'].y = footprint_predictor.type(torch.FloatTensor)
@@ -185,7 +184,12 @@ def graph(
 
     return (
         data,
-        footprint_rebuild_idx
+        {
+            "rebuild_idx": footprint_rebuild_idx,
+            "recorded": torch.tensor(y_terms).to(device),
+            "node_data": nodedata,
+            "footprints": footprints_lst
+        }
         # might need something else here, idk
     )
 
