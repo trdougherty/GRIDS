@@ -28,7 +28,7 @@ def graph(
         city:str,
         neighbor_radius:int = 10, 
         building_buffer:int = 50,
-        training_pct:int = 15,
+        test_percent:int = 15,
         device:str = "cuda:0"
     ) -> Dict:
     city_dir = os.path.join(os.getcwd(), "data", city)
@@ -48,6 +48,7 @@ def graph(
     # what we want to predict
     energy = pd.read_csv(os.path.join(city_dir, "energy.csv"))
     energy = energy[energy.area > 0]
+    energy = energy[energy.energy > 0]
     energy.footprint_id = energy.footprint_id.astype(str)
 
     footprints_data = footprints.merge(
@@ -61,6 +62,9 @@ def graph(
     # collecting node informaiton about panos
     nodes_file = os.path.join(city_dir, "nodes.geojson")
     nodes = gpd.read_file(nodes_file)
+    nodes['geometry'] = nodes.geometry.to_crs(
+        city_config['projection']
+    )
 
     # now collecting compressed information for each node
     panodata = pd.read_csv(os.path.join(city_dir, "panopticdata.csv"))
@@ -85,22 +89,26 @@ def graph(
     complete_footprints = complete_footprints.drop(columns=["year","id","geometry"]).join(x_dummies)
     complete_footprints.area = np.log(complete_footprints.area)
 
-    # buidling mappings between the footprints and the nodes
+    # first distinguishing here the unique buildings
+    unique_buildings = footprints_data.drop_duplicates(subset=['id'])
+    print(unique_buildings)
+
+    # buidling mappings between unique footprints and the nodes
     # creating a mapping for each building footprint
     footprint_mapping = {}
-    for i in range(len(footprints)):
-        footprint_mapping[footprints.id[i]] = i
+    for c,i in enumerate(unique_buildings.id):
+        footprint_mapping[i] = c
 
     # creating a mapping for each of the pano ids
     pano_mapping = {}
-    for i in range(len(nodedata)):
-        pano_mapping[nodedata.id[i]] = i
+    for c,i in enumerate(nodedata.id):
+        pano_mapping[i] = c
 
     # this now gives us a reverse mapping to expand the predictions from the graph system back into 
     # the format from the annual energy consumption
     footprint_rebuild_idx = torch.tensor([ footprint_mapping[i] for i in footprints_data.id ]).to(device)
-    unique_buildings = footprints_data.drop_duplicates(subset=['id'])
 
+    # this now seeds the graph based on unique buildings
     merged_footdata = gpd.sjoin(
         unique_buildings, 
         nodedata.loc[:,["id","geometry"]], 
@@ -132,7 +140,7 @@ def graph(
     )
 
     # splitting into 
-    split_data = split(footprints_lst, train_percent = training_pct)
+    split_data = split(footprints_lst, test_percent = test_percent)
     test_mask = torch.tensor(
         [ x in split_data['test'] for x in footprints_lst.id ]
     ).to(device)
@@ -188,7 +196,8 @@ def graph(
             "rebuild_idx": footprint_rebuild_idx,
             "recorded": torch.tensor(y_terms).to(device),
             "node_data": nodedata,
-            "footprints": footprints_lst
+            "footprints": footprints_lst, # this is going to be the unique buildings
+            "complete_footprints": complete_footprints
         }
         # might need something else here, idk
     )
