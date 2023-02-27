@@ -1,4 +1,0 @@
-# Comes from this source
-# https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=WONINGWAARDE_2021&THEMA=woningwaarde
-# This was the full command I used to download:
-# curl https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php\?KAARTLAAG\=WONINGWAARDE_2021\&THEMA\=woningwaarde --output footprints.geojson
