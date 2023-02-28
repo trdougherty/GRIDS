@@ -91,7 +91,6 @@ def graph(
 
     # first distinguishing here the unique buildings
     unique_buildings = footprints_data.drop_duplicates(subset=['id'])
-    print(unique_buildings)
 
     # buidling mappings between unique footprints and the nodes
     # creating a mapping for each building footprint
@@ -163,9 +162,13 @@ def graph(
 
     # now finally extracting information for the footprints to be tensors
     one_hot = pd.get_dummies(footprints_lst['year'])
+
+    simple_ids = footprints_lst.id
     footprints_simple = footprints_lst.drop(columns=["year","id","geometry"]).join(one_hot)
     footprints_simple.area = np.log(footprints_simple.area)
     footprint_tensor = torch.tensor(np.array(footprints_simple.drop(columns=["energy"]))).to(device)
+
+    # this might not get used
     footprint_predictor = torch.tensor(
         np.log(np.array(footprints_simple.loc[:,"energy"]).astype(np.float32))
     ).to(device)
@@ -194,10 +197,12 @@ def graph(
         data,
         {
             "rebuild_idx": footprint_rebuild_idx,
-            "recorded": torch.tensor(y_terms).to(device),
+            "recorded": torch.log(torch.tensor(y_terms).to(device)),
             "node_data": nodedata,
             "footprints": footprints_lst, # this is going to be the unique buildings
-            "complete_footprints": complete_footprints
+            "complete_footprints": complete_footprints,
+            "training_mask": train_mask,
+            "simple_ids": simple_ids
         }
         # might need something else here, idk
     )
