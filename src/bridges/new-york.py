@@ -16,6 +16,10 @@ import numpy as np
 import geopandas as gpd
 import argparse
 from pathlib import Path
+import hashlib
+
+def hashfunc(x):
+    return str(int(int(hashlib.sha512(x.encode('utf-8')).hexdigest(), 16) % 1e12))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--city", type=str, action="store", dest="city")
@@ -62,7 +66,7 @@ nodething = gpd.GeoDataFrame(
 
 nodething = nodething[['pano_id','pano_date','geometry']]
 nodething['error'] = np.repeat([False], len(nodething))
-nodething['filepath'] = [ os.path.join(args.city, "jpegs_manhattan_2021", x + '.jpg') for x in nodething.pano_id ]
+nodething['filepath'] = [ os.path.join(args.city, "jpegs_manhattan_2021", x + '.png') for x in nodething.pano_id ]
 
 # rebuild the pano with the new auxillary data terms
 pano_metadata = pd.concat([nodething, pano_metadata], ignore_index=True)
@@ -76,7 +80,7 @@ pano_metadata = pano_metadata.loc[~pano_metadata['error']]
 pano_metadata = pano_metadata.reset_index().drop(columns=['index'])
 
 # now convert it all to hash and drop the collisions
-pano_metadata['pano_id'] = [ str(hash(x) % ((sys.maxsize + 1) * 2)) for x in pano_metadata['pano_id'] ]
+pano_metadata['pano_id'] = [ hashfunc(str(x)) for x in pano_metadata['pano_id'] ]
 pano_metadata = pano_metadata.drop_duplicates(subset=["pano_id"], keep=False).reset_index().drop(columns='index')
 
 config = None
@@ -103,12 +107,16 @@ combined = gpd.sjoin(footenergy, pano_metadata.to_crs(config['projection']), pre
 keeping_panos = pano_metadata.iloc[combined['index_right'].unique()]
 
 # want to try and make sure we only have one copy of each geometry from the panos
-keeping_panos['geomhash'] = [ str(hash(x)) for x in keeping_panos.geometry ]
+keeping_panos['geomhash'] = [ hashfunc(str(x)) for x in keeping_panos.geometry ]
 keeping_panos = keeping_panos.drop_duplicates(subset=['geomhash'], keep=False)
 
 keepingpanoids = combined.id.unique()
 energy_c = energy.loc[energy['footprint_id'].isin(keepingpanoids)]
 energy_c.to_csv(os.path.join(args.output, "energy.csv"), index=False)
+
+lstdata = pd.read_csv(os.path.join(args.city, "sinusoid_compression.csv"), index_col=False)
+lstdata['id'] = lstdata.id.astype(str)
+lstdata.to_csv(os.path.join(args.output, "landsat_compression.csv"), index=False)
 
 footprint_c = footprints.loc[footprints['id'].isin(keepingpanoids)]
 footprint_c.to_crs(4326).to_file(os.path.join(args.output, "footprints.geojson"), driver="GeoJSON")
@@ -126,6 +134,7 @@ for f in files:
 
 for index, row in keeping_panos.iterrows():
     newfilename = os.path.join(outimagedir, str(row['pano_id']) + os.path.splitext(row['filepath'])[1])
+    print(f"Moving file: {row['filepath']} => {newfilename}")
     shutil.copyfile(row['filepath'], newfilename)
 
 keeping_panos[["pano_id","pano_date","geometry"]].to_file(os.path.join(args.output, "nodes.geojson"), driver="GeoJSON")
