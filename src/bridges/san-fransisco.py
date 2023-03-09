@@ -126,8 +126,11 @@ for f in files:
     os.remove(f)
 
 for index, row in keeping_panos.iterrows():
-    newfilename = os.path.join(outimagedir, str(row['pano_id']) + '.png')
-    print(f"Moving file: {row['filepath']} => {newfilename}")
-    shutil.copyfile(row['filepath'], newfilename)
+    newfilename = os.path.abspath(os.path.join(outimagedir, str(row['pano_id']) + '.png'))
+    if not os.path.isfile(newfilename):
+        full_oldfilename = os.path.abspath(row['filepath'])
+        print(f"Moving file: {full_oldfilename} => {newfilename}")
+        os.symlink(full_oldfilename, newfilename)
+        # shutil.copyfile(row['filepath'], newfilename)
 
 keeping_panos[["pano_id","pano_date","geometry"]].to_file(os.path.join(args.output, "nodes.geojson"), driver="GeoJSON")
