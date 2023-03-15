@@ -47,6 +47,6 @@ counts_df['id'] = [ Path(x).stem.split('_count')[0] for x in countfiles ]
 
 pano_metadata = areas_df.merge(counts_df, left_on="id", right_on="id")
 col = pano_metadata.pop("id")
-df = pano_metadata.insert(0, col.name, col)
+pano_metadata.insert(0, col.name, col)
 
-pano_metadata.to_csv(os.path.join(args.input, "panopticdata.csv"), index=False)
+pano_metadata.fillna(0).to_csv(os.path.join(args.input, "panopticdata.csv"), index=False)
