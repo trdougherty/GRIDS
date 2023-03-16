@@ -1,7 +1,7 @@
 # dbr
 Creation and Data pipeline for developing dense building representations (dbrs). References to all of the necessary files for preprocessing the data can be found in _sources.yml_. The root of each dataset will be distinguished by the following parameter:
 
-**city:** _path/to/city/directory/city\_sources.yml_
+**city:** _path/to/city/directory/sources.yml_
 
 ### Energy and Footprints
 Data should be processed using the format defined by the macro_climate utility, with two files for each region.
@@ -44,14 +44,21 @@ _Streetview Data - geolocated:_
 | 2110718573383811636 | POINT ((...)) |
 | 9501152238164954080 | POINT ((...)) |
 
-
 ### Data Processing Steps
 1. Collection of Energy Data, Footprints, and Streetview Imagery
-2. Download and unpack the panoptic segmentation machine provided by OneFormer `unzip src/modeldata.zip`
-2. Preprocessing of images:  `python src/preprocess.py city_sources.yml`
-3. Geospatial joins and links definitions between images: `python src/links.py city_sources.yml`
-4. Training: `python src/train.py [city(s)]`
-5. Inference: `python src/inference.py [city(s)]`
+2. Download and unpack the panoptic segmentation machine provided by OneFormer `unzip data.zip`
+<!-- 2. Preprocessing of images:  `python src/preprocess.py city_sources.yml` -->
+3. Geospatial joins and links definitions between images: `python src/links.py --config sources.yml --city [city(s)]`
+4. Training: `python src/train.py --config sources.yml --city [city(s)]`
+5. Inference: `python src/inference.py --config sources.yml --city [city(s)]`
+
+### Custom Training Setup
+You need at least four files for each city to curate the computational graph and undergo inference and training.
+
+1. footprints.geojson - building footprint, which will be used to calculate the floor area
+2. nodes.geojson - definition of properties on the streetview imagery. at a minimum this needs the image id and the location
+3. panopticdata.csv - output of oneformer compression, this has information about the contents of each image
+4. (training) energy.csv - ground truth data for the building's energy consumption
 
 ## Validation of accuracy
 Validation used is RMSE, as the validation metrics found in [the ASHRAE handbook](http://www.eeperformance.org/uploads/8/6/5/0/8650231/ashrae_guideline_14-2002_measurement_of_energy_and_demand_saving.pdf) are defined for monthly and hourly predictions.
