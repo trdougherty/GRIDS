@@ -88,6 +88,9 @@ config = {
     'linear_layers': 2,
     'hidden_channels': 8,
     'dropout': 0.5,
+    'graph_outchannels': 8,
+    'graph_layers': 1,
+    'graph_heads': 8,
     'test-percent': 30,
     'building_buffer': 100,
     'neighbor_radius': 100,
@@ -472,9 +475,9 @@ from src.model import CustomGAT
 
 model = CustomGAT(
     hidden_channels = config['hidden_channels'], 
-    out_channels=4,
-    layers=1,
-    heads=2,
+    out_channels=config['graph_outchannels'],
+    layers=config['graph_layers'],
+    heads=config['graph_heads'],
     linear_layers = config['linear_layers'],
     input_shape = config['input_shape'],
     dropout = config['dropout']
