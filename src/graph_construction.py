@@ -9,6 +9,7 @@ import yaml
 import copy
 import torch
 from typing import List, Dict, Tuple
+from scipy import stats
 
 from torch_geometric.data import HeteroData
 from torch_geometric.data import Data
@@ -41,20 +42,41 @@ def graph(
     ### Basic footprint and energy loading
     footprints_file = os.path.join(city_dir, "footprints.geojson")
     footprints = gpd.read_file(footprints_file)
-    footprints["geometry"] = footprints.geometry.to_crs(
+
+    footprints_crs = footprints.geometry.to_crs(
         city_config['projection']
-    ).buffer(building_buffer)
+    )
+    footprints["geometry_prior"] = copy.deepcopy(footprints_crs.geometry)
+    footprints["geometry"] = footprints_crs.buffer(building_buffer)
 
     # what we want to predict
     energy = pd.read_csv(os.path.join(city_dir, "energy.csv"))
     energy = energy[energy.area > 0]
     energy = energy[energy.energy > 0]
+
+    # dropping out outliers with a z score over 2
+    # print(f"Energy Prior: {energy.energy.describe()}")
+    zfilter = 1.96
+    areafilter = (np.abs(stats.zscore(energy['area'])) < zfilter)
+    energyfilter = (np.abs(stats.zscore(energy['energy'])) < zfilter)
+    energy = energy[ np.all([areafilter, energyfilter], axis=0) ]
+
+    # print(f"Energy Post: {energy.energy.describe()}")
+
+    # parsing the footprint id to make it more interpretable    
     energy.footprint_id = energy.footprint_id.astype(str)
+
+    # ok this is meant to pool the energy data so we don't have to mess with this reprojection madness
+    energy = energy.groupby('footprint_id').agg({
+        'energy': 'mean',
+        'area': 'first',
+        'year': 'first'
+    })
 
     # now collecting the compressed landsat data
     landsat_compression = pd.read_csv(
         os.path.join(city_dir, "landsat_compression.csv"), 
-        index_col=0).loc[:,["id","amplitude","bias"]]
+        index_col=0).loc[:,["id","amplitude","bias","hdd","cdd"]]
     landsat_compression.id = landsat_compression.id.astype(str)
 
     footprints_data = footprints.merge(
@@ -62,7 +84,9 @@ def graph(
         left_on="id", 
         right_on="footprint_id", 
         how="inner"
-    ).drop(columns=['footprint_id'])
+    )
+
+    #.drop(columns=['footprint_id'])
 
     # this is going to have the redundancy of multiple buildings measurements - one for each year
     footprints_lst = footprints_data.merge(
@@ -83,7 +107,7 @@ def graph(
 
     # now collecting compressed information for each node
     panodata = pd.read_csv(os.path.join(city_dir, "panopticdata.csv"))
-    panodata = panodata[panodata['sky_area'] < 1.0]
+    panodata = panodata[(panodata['sky_area'] < 1.0) & (panodata['sky_area'] > 0)]
     panodata['id'] = panodata.id.astype(str)
 
     # merging the geo information for the nodes with the pano data - only nodes with data are captured
@@ -140,14 +164,17 @@ def graph(
 
     ### now I'm going to define the X data for the nodes and the buildings
     nodedata_marginal_n = nodedata_n.loc[:,[
-        "road_area",
-        "building_area",
+        # "road_area",
+        # "building_area",
         "sky_area",
         "vegetation_area",
-        # "car_count",
+        "car_count",
         # "person_count"
     ]]
     x_nodes = torch.tensor(nodedata_marginal_n.to_numpy().astype("float32")).to(device)
+
+    unique_buildings_n["geometry"] = unique_buildings_n["geometry_prior"]
+    unique_buildings_n = unique_buildings_n.drop(columns=["geometry_prior","bias","amplitude"])
 
     building_reduction = unique_buildings_n.drop(columns=["year","id","geometry"])#.join(one_hot)
     building_reduction.area = np.log(building_reduction.area)
@@ -214,6 +241,16 @@ def graph(
     # node_tensor.requires_grad = False
     # footprint_tensor.requires_grad = False
 
+    # normalize the node features to give ml a good shot
+    node_mean = x_nodes.mean(dim=0)
+    node_std = x_nodes.std(dim=0)
+
+    building_mean = x_buildings.mean(dim=0)
+    building_std = x_buildings.std(dim=0)
+
+    x_nodes = (x_nodes - node_mean) / node_std
+    x_buildings = (x_buildings - building_mean) / building_std
+
     # now to finally construct the graph and hand it off
     data = HeteroData()
     data['pano'].x = x_nodes.type(torch.FloatTensor)
@@ -238,10 +275,13 @@ def graph(
             "rebuild_idx": footprint_rebuild_idx,
             # "recorded": torch.log(torch.tensor(y_terms).to(device)),
             "node_data": nodedata_marginal_n,
+            "node_data_original": nodedata_n,
             "footprints": unique_buildings_n, # this is going to be the unique buildings
             # "complete_footprints": complete_footprints,
             "training_mask": train_mask,
-            "test_mask": test_mask
+            "test_mask": test_mask,
+            "building_normalizations": (building_mean, building_std),
+            "node_normalizations": (node_mean, node_std)
             # "simple_ids": simple_ids
         }
         # might need something else here, idk

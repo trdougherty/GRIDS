@@ -41,7 +41,6 @@ def crossvalidation(
     model,
     anonymous_function,
     cvs,
-    rebuilding_idx,
     recorded_values,
     epochs = 100,
     lr = 0.15,
@@ -73,8 +72,8 @@ def crossvalidation(
     #     print(f"Training fold: {c}")
         train_mask, val_mask = masks
 
-        trainmask_ex = train_mask[rebuilding_idx]
-        valmask_ex = val_mask[rebuilding_idx]
+        trainmask_ex = train_mask
+        valmask_ex = val_mask
 
     #     print(f"Training idx sample: {np.random.choice(train_mask, 100).sum()}")
         fold_trainingloss = []
@@ -87,7 +86,7 @@ def crossvalidation(
 
             out = anonymous_function()
             #out = model(nycgraph.x_dict, nycgraph.edge_index_dict)
-            out_ex = out.squeeze()[rebuilding_idx]
+            out_ex = out.squeeze()
 
             training_predictions = out_ex[trainmask_ex].to(torch.float)
             training_values = recorded_values[trainmask_ex].to(torch.float)
@@ -107,7 +106,7 @@ def crossvalidation(
             model.eval()
             with torch.no_grad():
                 valout = anonymous_function()
-                valout_ex = valout.squeeze()[rebuilding_idx]
+                valout_ex = valout.squeeze()
                 validation_predictions = valout_ex[valmask_ex].to(torch.float)      
                 validation_values = recorded_values[valmask_ex].to(torch.float)
                 validation_loss = loss_func(
