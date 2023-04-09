@@ -45,10 +45,10 @@ class FullGAT(torch.nn.Module):
         self.lin = Linear(hidden_channels, out_channels)
         self.mlp = nn.Sequential(
             nn.Linear(out_channels * heads, hidden_channels),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=dropout),
             nn.ReLU(),
             nn.Linear(hidden_channels, hidden_channels),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p=dropout),
             nn.ReLU(),
             nn.Linear(hidden_channels, 1)
         )
@@ -139,13 +139,13 @@ class CustomGAT(torch.nn.Module):
 #         pano_blend = self.conv_translate(x['pano'], edge_index['footprint','contains','pano'])
 #         hetero_conv = HeteroConv({
 #             ('pano', 'rev_contains', 'footprint'): GATConv((-1, -1), 64, add_self_loops=True),
-#         }, aggr='sum').to(device)
+#         }, aggr='mean').to(device)
 
         footprint_predictions = self.conv_translate(x, edge_index)['footprint']
         return linear_projection + self.mlp(footprint_predictions)
 #         return x['pano']
 
-# model = to_hetero(model, data.metadata(), aggr='sum').to(device)
+# model = to_hetero(model, data.metadata(), aggr='mean').to(device)
 
 class NullModel(torch.nn.Module):
     def __init__(
