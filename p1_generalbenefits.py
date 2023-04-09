@@ -1,78 +1,39 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import torch
 import os
 import sys
 import copy
 import random
 import json
-
-# In[2]:
-
-
 import matplotlib.pyplot as plt
-
-
-# In[3]:
-
+from sklearn.linear_model import LinearRegression
 
 import numpy as np
 import networkx as nx
+import argparse
+
+import torch_geometric.transforms as T
+transform = T.Compose([T.ToUndirected(), T.AddSelfLoops()])
+
+def relative_benefit(errors, threshold):
+    count_pass = (errors <= threshold).sum()
+    return float(100 * (count_pass / len(errors)))
 
 np.random.seed(0)
 torch.manual_seed(0)
 random.seed(0)
 
-
-# In[4]:
-
-
-import wandb
-
-
-# In[5]:
-
-
 device = "cuda:0"
-
-
-# In[6]:
-
-
-# get_ipython().run_line_magic('load_ext', 'autoreload')
-# get_ipython().run_line_magic('autoreload', '2')
-
-
-# In[7]:
-
 
 module_path = os.path.abspath(os.path.join('..'))
 if module_path not in sys.path:
     sys.path.append(module_path)
 
-
-# In[68]:
-
-
-# In[8]:
-
-
 from src.cv import crossvalidation, build_masks
+from src.model import CustomGAT, NullModel
 
-
-# In[9]:
-
-
-import torch_geometric.transforms as T
-transform = T.Compose([T.ToUndirected(), T.AddSelfLoops()])
-
-
-# In[78]:
-import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", type=str, action="store", dest="output", default="p1")
 parser.add_argument("--note", type=str, action="store", dest="note", default=None)
@@ -83,31 +44,25 @@ os.makedirs(results_dir, exist_ok=True)
 
 config = {
     "custom_optimizer": torch.optim.Adam,
-    "lr" : 0.01,
+    "lr" : 0.05,
     'epochs': 3000,
     'linear_layers': 2,
     'hidden_channels': 8,
     'dropout': 0.5,
-    'graph_outchannels': 8,
+    'graph_outchannels': 4,
     'graph_layers': 1,
-    'graph_heads': 8,
-    'test-percent': 30,
+    'graph_heads': 6,
+    'test-percent': 15,
     'building_buffer': 100,
     'neighbor_radius': 100,
-    'n_cv': 3,
+    'n_cv': 8,
     'cv_size': 600
 }
 
-config_filedata = copy.deepcopy(config)
-config_filedata['custom_optimizer'] = str(config_filedata['custom_optimizer'])
+config_path = os.path.join(results_dir, 'config_settings.txt')
 
-with open(os.path.join(results_dir, "config.txt"), "w") as outfile:
-    json.dump(config_filedata, outfile)
-
-# In[84]:
-
-
-f = open(os.path.join(results_dir, 'config_settings.txt'), "w")
+# 0 - Printing the config characteristics
+f = open(config_path, "w")
 if args.note is not None:
     f.write(str("NOTE:\n"))
     f.write(str(args.note))
@@ -118,9 +73,8 @@ f.write(str(config))
 f.close()
 
 
-# In[11]:
 
-
+# 1 - Building the Graphs:
 from src.graph_construction import graph
 nycgraph, nyc_rebuild_info = graph(
     "new-york",
@@ -129,126 +83,56 @@ nycgraph, nyc_rebuild_info = graph(
     test_percent=config['test-percent']
 )
 
-# nycgraph = transform(nycgraph)
-
-
-# In[85]:
-
-
-f = open(os.path.join(results_dir, 'config_settings.txt'), "a")
+f = open(config_path, "a")
 f.write(str("\n\n"))
 f.write(str("NY Graph:\n"))
 f.write(str(nycgraph))
 f.close()
 
-
-# In[13]:
-
-
-nycgraph['footprint'].y[:10]
-
-
-# In[14]:
-
-
-config['input_shape'] = nycgraph['footprint'].x.shape[1]
-
-
-# In[15]:
-
-
-nyc_rebuild_info['training_mask'].shape
-
-
-# In[ ]:
-
-
-from src.graph_construction import graph
-sfgraph, sf_rebuild_info = graph(
+g2, g2a = graph(
     "san-fransisco",
-    neighbor_radius=config['neighbor_radius'],
+    neighbor_radius=150,
     building_buffer=config['building_buffer'],
-    test_percent=config['test-percent']
+    test_percent=config['test-percent'],
+    normalization=g1a['normalization']
 )
 
+g2p = pool_adjacency(g2, g2a)
 
-# In[86]:
+g3, g3a = graph(
+    "austin",
+    neighbor_radius=150,
+    building_buffer=config['building_buffer'],
+    test_percent=config['test-percent'],
+    normalization=g1a['normalization']
+)
 
+g3p = pool_adjacency(g3, g3a)
 
-f = open(os.path.join(results_dir, 'config_settings.txt'), "a")
+f = open(config_path, "a")
 f.write(str("\n\n"))
-f.write(str("San Fransisco Graph:\n"))
-f.write(str(sfgraph))
+f.write(str("San Francisco Graph:\n"))
+f.write(str(g2))
 f.close()
 
-
-# In[16]:
-
-
-from src.graph_construction import graph
-austingraph, austin_rebuild_info = graph(
-    "austin",
-    neighbor_radius=config['neighbor_radius'],
-    building_buffer=config['building_buffer'],
-    test_percent=config['test-percent']
-)
-
-
-# In[87]:
-
-
-f = open(os.path.join(results_dir, 'config_settings.txt'), "a")
+f = open(config_path, "a")
 f.write(str("\n\n"))
 f.write(str("Austin Graph:\n"))
-f.write(str(austingraph))
+f.write(str(g3))
 f.close()
 
-
-# In[19]:
-
-
-nyc_rebuild_info['training_mask'].sum()
-
-
-# In[20]:
-
-
-(~nyc_rebuild_info['training_mask']).sum()
-
-
-# In[21]:
-
-
-from sklearn.linear_model import LinearRegression
-
-
-# In[22]:
-
-
-loss_func = torch.nn.MSELoss()
+# 2 - now building out components for training in New York
+loss_func = torch.nn.L1Loss()
 nyrebuild_idx = torch.tensor(nyc_rebuild_info['rebuild_idx'])
-
-
-# In[23]:
-
-
 nyc_mask = nyc_rebuild_info['training_mask'].cpu().numpy()
 
-
-# In[79]:
-
-
-np.random.seed(0)
 nyc_cvs = build_masks(
     nyc_mask, 
     n_cv = config['n_cv'],
     n_val = config['cv_size']
 )
 
-
-# In[25]:
-
-
+# 3 - Constructing Sensitivity with Linear Regression
 valmean = []
 valstd = []
 
@@ -285,13 +169,10 @@ valmean.append(linear_regerr)
 trainstd.append(np.std(cvtrain_errors))
 valstd.append(np.std(cv_errors))
 
-
-# In[26]:
-
-
 fullreg = LinearRegression().fit(nyX, nyY)
 
-f = open(os.path.join(results_dir, 'config_settings.txt'), "a")
+# some summary statistics using some of the regression results
+f = open(config_path, "a")
 f.write(str("\n\n"))
 f.write(str("Mean Building Vals - NYC:\n"))
 f.write(str(nyc_rebuild_info['footprints'].describe(include=[np.number])))
@@ -303,10 +184,10 @@ f.write(str("Regression Coefficients - New York:\n"))
 f.write(str(fullreg.coef_)+"\n")
 f.write(str(fullreg.get_params()))
 f.write(str("\n\n"))
-f.write(str("Mean Building Vals - San Fransisco:\n"))
+f.write(str("Mean Building Vals - San Francisco:\n"))
 f.write(str(sf_rebuild_info['footprints'].describe(include=[np.number])))
 f.write(str("\n\n"))
-f.write(str("Mean Pano Vals - San Fransisco:\n"))
+f.write(str("Mean Pano Vals - San Francisco:\n"))
 f.write(str(sf_rebuild_info['node_data'].describe(include=[np.number])))
 f.write(str("\n\n"))
 f.write(str("Mean Building Vals - Austin:\n"))
@@ -317,45 +198,30 @@ f.write(str(austin_rebuild_info['node_data'].describe(include=[np.number])))
 f.write(str("\n\n"))
 f.close()
 
-
-# In[27]:
-
-
-# plt.plot(range(ntesting), trainmean, label="training")
-# plt.fill_between(
-#     range(ntesting), 
-#     np.array(trainmean) - np.array(trainstd), 
-#     np.array(trainmean) + np.array(trainstd),
-#     alpha=0.2
-# ) 
-
-# plt.plot(range(ntesting), valmean, label="validation")
-# plt.fill_between(
-#     range(ntesting), 
-#     np.array(valmean) - np.array(valstd), 
-#     np.array(valmean) + np.array(valstd),
-#     alpha=0.2
-# )
-
-# plt.ylim(0.3, 1.3)
-# plt.legend()
-# 
-
-
-# In[28]:
-
-
-from src.model import NullModel
-
-# input_shape = nycgraph['footprint'].x.shape[1]
+# 3 - now building out the models a bit, collecting them using the config features
 nullmodel = NullModel(
     layers = config['linear_layers'],
     input_shape = config['input_shape'],
     hidden_channels = config['hidden_channels']
 ).to(device)
 
-default_nullmodelstate = copy.deepcopy(nullmodel.state_dict())
+default_nullmodelstate = copy.deepcopy(nullmodel.state_dict()) # storage of the default params
 
+model = CustomGAT(
+    hidden_channels = config['hidden_channels'], 
+    out_channels=config['graph_outchannels'],
+    layers=config['graph_layers'],
+    heads=config['graph_heads'],
+    linear_layers = config['linear_layers'],
+    input_shape = config['input_shape'],
+    dropout = config['dropout']
+).to(device)
+
+# want to store the default random model
+default_modelstate = copy.deepcopy(model.state_dict())
+
+
+# 4 - training component - starting with New York City
 null_training_tensor, null_validation_tensor = crossvalidation(
     nullmodel,
     lambda: nullmodel(nycgraph['footprint'].x),
@@ -369,126 +235,7 @@ null_training_tensor, null_validation_tensor = crossvalidation(
     log_model = False
 )
 
-
-# In[29]:
-
-
-null_mean_tl = null_training_tensor.mean(axis=0)
-null_mean_vl = null_validation_tensor.mean(axis=0)
-
-plt.plot(null_mean_tl, label="Null Training")
-plt.plot(null_mean_vl, label="Null Validation")
-
-plt.legend()
-
-plt.yscale("log")
-plt.ylim((0,5))
-
-
-# In[30]:
-
-
-config
-
-
-# In[31]:
-
-
-nycgraph
-
-
-# In[32]:
-
-
-# from torch import nn
-# import torch_geometric.transforms as T
-# from torch_geometric.nn import GATConv, Linear, to_hetero, GATv2Conv
-# from torch_geometric.nn.conv.hetero_conv import HeteroConv
-
-# custom_graphconv = GATv2Conv
-
-# class CustomGAT(torch.nn.Module):
-#     def __init__(
-#             self, 
-#             hidden_channels:int, 
-#             out_channels:int, 
-#             layers:int,
-#             linear_layers:int,
-#             input_shape:int,
-#             heads:int = 1,
-#             dropout = 0.5
-#         ):
-#         super().__init__()
-#         self.layers = layers
-        
-#         self.convs = torch.nn.ModuleList()
-#         self.lins = torch.nn.ModuleList()
-
-#         self.nullmodel = NullModel(
-#             layers = linear_layers,
-#             input_shape = input_shape,
-#             hidden_channels=hidden_channels
-#         )
-        
-#         self.convs = torch.nn.ModuleList()
-#         for _ in range(layers):
-#             conv = HeteroConv({
-#                 ('pano', 'links', 'pano'): custom_graphconv(-1, hidden_channels, add_self_loops = False, heads=heads),
-#                 ('footprint', 'contains', 'pano'): custom_graphconv((-1, -1), hidden_channels, add_self_loops = False, heads=heads),
-#                 ('pano', 'rev_contains', 'footprint'): custom_graphconv((-1, -1), hidden_channels, add_self_loops = False, heads=heads),
-#             }, aggr='sum')
-#             self.convs.append(conv)
-
-#         self.lin = Linear(hidden_channels, out_channels)
-#         self.mlp = nn.Sequential(
-#             nn.Dropout(p=0.8),
-#             nn.ReLU(),
-#             nn.Linear(out_channels * heads, hidden_channels),
-#             nn.Dropout(p=0.5),
-#             nn.ReLU(),
-#             nn.Linear(hidden_channels, hidden_channels),
-#             nn.Dropout(p=0.5),
-#             nn.ReLU(),
-#             nn.Linear(hidden_channels, 1)
-#         )
-
-#     def forward(self, x_dict, edge_index_dict):
-#         for conv in self.convs:
-#             x_dict = conv(x_dict, edge_index_dict)
-#             x_dict = {key: x.relu() for key, x in x_dict.items()}
-#         return self.mlp(x_dict['footprint'])
-# #         return x['pano']
-
-# # model = to_hetero(model, data.metadata(), aggr='sum').to(device)
-
-
-# In[33]:
-
-
-config
-
-
-# In[34]:
-
-
-from src.model import CustomGAT
-
-model = CustomGAT(
-    hidden_channels = config['hidden_channels'], 
-    out_channels=config['graph_outchannels'],
-    layers=config['graph_layers'],
-    heads=config['graph_heads'],
-    linear_layers = config['linear_layers'],
-    input_shape = config['input_shape'],
-    dropout = config['dropout']
-).to(device)
-
-default_modelstate = copy.deepcopy(model.state_dict())
-
-
-# In[35]:
-
-
+# running custom crossvalidation on the data
 graph_training_tensor, graph_validation_tensor = crossvalidation(
     model,
     lambda: model(nycgraph.x_dict, nycgraph.edge_index_dict),
@@ -502,35 +249,11 @@ graph_training_tensor, graph_validation_tensor = crossvalidation(
     log_model = False
 )
 
-
-# In[36]:
-
-
 mean_tl = graph_training_tensor.mean(axis=0)
 std_tl = graph_training_tensor.std(axis=0)
 
 mean_vl = graph_validation_tensor.mean(axis=0)
 std_vl = graph_validation_tensor.std(axis=0)
-
-plt.plot(mean_tl, label="Graph Training")
-plt.plot(mean_vl, label="Graph Validation")
-plt.legend()
-
-plt.yscale("log")
-plt.ylim((0,2))
-
-
-# In[37]:
-
-
-nycfootprints = nyc_rebuild_info['footprints']
-nycfootprints['logenergy'] = np.log(nycfootprints.energy)
-
-# nycfootprints.explore('logenergy')
-
-
-# In[88]:
-
 
 domain = np.arange(0, len(mean_tl))
 plt.figure(figsize=(6, 6), dpi=400)
@@ -556,23 +279,8 @@ plt.ylim((0,2.5))
 plt.savefig(os.path.join(results_dir, 'model_comparison.png'), bbox_inches="tight")
 
 
-
-# In[39]:
-
-
 graph_improvement = (min(mean_vl) - min(null_mean_vl)) / min(null_mean_vl)
 print("Improvement from Context: {:0.2f}%".format(100*graph_improvement))
-
-
-# In[40]:
-
-
-def relative_benefit(errors, threshold):
-    count_pass = (errors <= threshold).sum()
-    return float(100 * (count_pass / len(errors)))
-
-
-# In[41]:
 
 
 # now examining how this may generalize
@@ -597,52 +305,23 @@ with torch.no_grad():
     print("Graph Loss:\t{:0.2f}".format(graph_loss))
     print("Improvement:\t{:0.2f}".format(100 * (graph_loss - null_loss)/null_loss))
 
-
-# In[42]:
-
-
 linmae = torch.abs(torch.exp(recorded) - torch.tensor(np.exp(linear_predictions)).to(device))
 nullmae = torch.abs(torch.exp(recorded) - torch.exp(null_predictions))
 graphmae = torch.abs(torch.exp(recorded) - torch.exp(estimates))
 
-
-# In[43]:
-
-
 threshold = 1000
-
 print(f"Linear Benefit:\t\t{relative_benefit(linmae, threshold)}")
 print(f"Null Benefit:\t\t{relative_benefit(nullmae, threshold)}")
 print(f"Graph Benefit:\t\t{relative_benefit(graphmae, threshold)}")
 
-
-# In[44]:
-
-
-torch.exp(null_predictions)
-
-
-# In[45]:
-
-
 testidx = (~sf_rebuild_info['training_mask']).detach().cpu().numpy()
-testidx
-
-
-# In[46]:
-
-
 rebuilding_idx = np.array(sf_rebuild_info['rebuild_idx'])
-
-
-# In[47]:
-
 
 # now examining how this may generalize
 nullmodel.eval()
 model.eval()
 with torch.no_grad():
-    print("San Fransisco")
+    print("San Francisco")
     testidx = (~sf_rebuild_info['training_mask']).detach().cpu().numpy()
     rebuilding_idx = np.array(sf_rebuild_info['rebuild_idx'])
     null_predictions = nullmodel(sfgraph['footprint'].x).squeeze()[rebuilding_idx][testidx[rebuilding_idx]]
@@ -658,9 +337,6 @@ with torch.no_grad():
     print("Null Loss:\t{:0.2f}".format(null_loss))
     print("Graph Loss:\t{:0.2f}".format(graph_loss))
     print("Improvement:\t{:0.2f}".format(100 * (graph_loss - null_loss)/null_loss))
-
-
-# In[48]:
 
 
 nullmodel.eval()
@@ -838,7 +514,10 @@ sf_nullvalloss = []
 
 config['epochs'] = 1000
 
-for n_true in tqdm(range(100), leave=True):
+sf_semitrained = None
+sf_nullsemitrained = None
+
+for n_true in tqdm(range(75), leave=True):
     model.load_state_dict(nystate_dict)
     nullmodel.load_state_dict(nystate_nulldict)
     
@@ -898,6 +577,11 @@ for n_true in tqdm(range(100), leave=True):
         loss_func = loss_func,
         config = config
     )
+
+    if n_true == 5:
+        sf_semitrained = copy.deepcopy(sf_state_dict)
+        sf_nullsemitrained = copy.deepcopy(sf_state_dict_null)
+
     sf_valloss.append(min(sf_testlosses))
     sf_nullvalloss.append(min(sf_nulltestlosses))
 
@@ -915,8 +599,8 @@ plt.plot(sf_valloss, label="Graph", color="lightblue")
 plt.legend()
 plt.yscale("log")
 
-plt.title("Generalization from New York to San Fransisco")
-plt.xlabel("# Buildings from San Fransisco")
+plt.title("Generalization from New York to San Francisco")
+plt.xlabel("# Buildings from San Francisco")
 plt.ylabel("Loss - RMSE")
 
 plt.ylim((0,2.5))
@@ -940,7 +624,7 @@ austin_nullvalloss = []
 
 config['epochs'] = 1000
 
-for n_true in tqdm(range(10), leave=True):
+for n_true in tqdm(range(75), leave=True):
     model.load_state_dict(nystate_dict)
     nullmodel.load_state_dict(nystate_nulldict)
 
@@ -1021,6 +705,13 @@ plt.ylabel("Loss - RMSE")
 plt.ylim((0,2.5))
 plt.savefig(os.path.join(results_dir, 'austin_generalization.png'))
 
+#### saving the config
+config_filedata = copy.deepcopy(config)
+config_filedata['custom_optimizer'] = str(config_filedata['custom_optimizer'])
+
+with open(os.path.join(results_dir, "config.txt"), "w") as outfile:
+    json.dump(config_filedata, outfile)
+
 
 #### now to save all the model configs
 torch.save({
@@ -1029,7 +720,9 @@ torch.save({
     'default_null_model': default_nullmodelstate,
     'ny_null_model': nystate_nulldict,
     'sf_extension': sf_state_dict,
-    'sf_extension_null': sf_state_dict_null
+    'sf_extension_semi': sf_semitrained,
+    'sf_extension_null': sf_state_dict_null,
+    'sf_extension_null_semi': sf_nullsemitrained
 }, os.path.join(results_dir, "state_dicts.tar"))
 
 # In[62]:
