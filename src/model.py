@@ -7,7 +7,7 @@ from torch_geometric.nn.conv.hetero_conv import HeteroConv
 
 custom_graphconv = GATv2Conv
 
-device = "cuda:0"
+device = "cuda"
 
 class FullGAT(torch.nn.Module):
     """This class is going to bounce information between buildings and street elements"""

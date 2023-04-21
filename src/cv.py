@@ -1,9 +1,15 @@
 import os
 import sys
+
 import torch
+
+os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
+torch.use_deterministic_algorithms(True)
+
 import numpy as np
 import copy
 from tqdm import tqdm_notebook
+import random
 
 import wandb
 
@@ -55,8 +61,6 @@ def crossvalidation(
     validation_losses = []
     
     optimizer = custom_optimizer(model.parameters(), lr = lr)
-    np.random.seed(1)
-    torch.manual_seed(1)
     last_run = False
 
     if log_model:
@@ -81,6 +85,16 @@ def crossvalidation(
 
         for epoch in tqdm_notebook(range(epochs), desc="Epoch", leave=False):
             model.train()
+
+            rand = 1
+            torch.manual_seed(rand)
+            torch.cuda.manual_seed(rand)
+            torch.cuda.manual_seed_all(rand)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            np.random.seed(rand)
+            random.seed(rand)
+
             loss = 0
             validation_loss = 0
 

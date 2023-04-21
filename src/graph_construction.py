@@ -30,7 +30,7 @@ def graph(
         neighbor_radius:int = 10, 
         building_buffer:int = 50,
         test_percent:int = 15,
-        device:str = "cuda:0",
+        device:str = "cuda",
         normalization = None
     ) -> Dict:
     city_dir = os.path.join(os.getcwd(), "data", city)
