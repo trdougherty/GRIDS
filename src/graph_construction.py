@@ -44,7 +44,7 @@ def graph(
     footprints_file = os.path.join(city_dir, "footprints.geojson")
     footprints = gpd.read_file(footprints_file)
     footprints.crs = 'epsg:4326'
-    print("Footprints:", footprints)
+    # print("Footprints:", footprints)
 
     footprints_crs = footprints.geometry.to_crs(
         city_config['projection']
