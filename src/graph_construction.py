@@ -30,7 +30,8 @@ def graph(
         neighbor_radius:int = 10, 
         building_buffer:int = 50,
         test_percent:int = 15,
-        device:str = "cuda:0"
+        device:str = "cuda:0",
+        normalization = None
     ) -> Dict:
     city_dir = os.path.join(os.getcwd(), "data", city)
     city_config = None
@@ -42,6 +43,8 @@ def graph(
     ### Basic footprint and energy loading
     footprints_file = os.path.join(city_dir, "footprints.geojson")
     footprints = gpd.read_file(footprints_file)
+    footprints.crs = 'epsg:4326'
+    print("Footprints:", footprints)
 
     footprints_crs = footprints.geometry.to_crs(
         city_config['projection']
@@ -163,14 +166,16 @@ def graph(
     links = torch.tensor(np.array([merged_footdata['footprint_idx'], merged_footdata['nodes_idx']])).to(device)
 
     ### now I'm going to define the X data for the nodes and the buildings
-    nodedata_marginal_n = nodedata_n.loc[:,[
-        # "road_area",
-        # "building_area",
-        "sky_area",
-        "vegetation_area",
-        "car_count",
-        # "person_count"
-    ]]
+    nodedata_marginal_n = nodedata_n.loc[:, ~nodedata_n.columns.isin(['pano_id', 'pano_date', 'geometry', 'id'])]
+
+    # nodedata_marginal_n = nodedata_n.loc[:,[
+    #     "road_area",
+    #     "building_area",
+    #     "sky_area",
+    #     "vegetation_area",
+    #     "car_count",
+    #     "person_count"
+    # ]]
     x_nodes = torch.tensor(nodedata_marginal_n.to_numpy().astype("float32")).to(device)
 
     unique_buildings_n["geometry"] = unique_buildings_n["geometry_prior"]
@@ -242,11 +247,15 @@ def graph(
     # footprint_tensor.requires_grad = False
 
     # normalize the node features to give ml a good shot
-    node_mean = x_nodes.mean(dim=0)
-    node_std = x_nodes.std(dim=0)
+    if normalization is None:
+        node_mean = x_nodes.mean(dim=0)
+        node_std = x_nodes.std(dim=0)
 
-    building_mean = x_buildings.mean(dim=0)
-    building_std = x_buildings.std(dim=0)
+        building_mean = x_buildings.mean(dim=0)
+        building_std = x_buildings.std(dim=0)
+    else:
+        node_mean, node_std = normalization['node']
+        building_mean, building_std = normalization['building']
 
     x_nodes = (x_nodes - node_mean) / node_std
     x_buildings = (x_buildings - building_mean) / building_std
@@ -280,8 +289,10 @@ def graph(
             # "complete_footprints": complete_footprints,
             "training_mask": train_mask,
             "test_mask": test_mask,
-            "building_normalizations": (building_mean, building_std),
-            "node_normalizations": (node_mean, node_std)
+            "normalization": {
+                "node": (node_mean, node_std),
+                "building": (building_mean, building_std)
+            }
             # "simple_ids": simple_ids
         }
         # might need something else here, idk
