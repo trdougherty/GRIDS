@@ -70,7 +70,8 @@ class CustomGAT(torch.nn.Module):
             linear_layers:int,
             input_shape:int,
             heads:int = 1,
-            dropout = 0.5
+            dropout = 0.5,
+            **kwargs
         ):
         super().__init__()
         self.layers = layers
@@ -152,7 +153,8 @@ class NullModel(torch.nn.Module):
             self, 
             layers:int = 2, 
             input_shape:int = 6, 
-            hidden_channels:int = 8
+            hidden_channels:int = 8,
+            **kwargs
         ) -> None:
         super().__init__()
 

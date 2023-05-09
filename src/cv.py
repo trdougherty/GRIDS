@@ -14,13 +14,13 @@ import random
 import wandb
 
 # now I want to build training and validation masks
-def build_masks(training_mask, n_val = 100, n_cv = 10):
+def build_masks(training_mask, cv_size = 100, n_cv = 10, **kwargs):
     true_idx = np.where(training_mask)[0]
     validation_batches = []
 
     for i in range(n_cv):
         validation_batches.append(
-            np.random.choice(true_idx, n_val, replace=False)
+            np.random.choice(true_idx, cv_size, replace=False)
         )
     
     cv_masks = []
@@ -85,15 +85,6 @@ def crossvalidation(
 
         for epoch in tqdm_notebook(range(epochs), desc="Epoch", leave=False):
             model.train()
-
-            rand = 1
-            torch.manual_seed(rand)
-            torch.cuda.manual_seed(rand)
-            torch.cuda.manual_seed_all(rand)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-            np.random.seed(rand)
-            random.seed(rand)
 
             loss = 0
             validation_loss = 0

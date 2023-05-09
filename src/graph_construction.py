@@ -31,7 +31,9 @@ def graph(
         building_buffer:int = 50,
         test_percent:int = 15,
         device:str = "cuda",
-        normalization = None
+        normalization = None,
+        partition_terms: List = [],
+        **kwargs
     ) -> Dict:
     city_dir = os.path.join(os.getcwd(), "data", city)
     city_config = None
@@ -166,16 +168,13 @@ def graph(
     links = torch.tensor(np.array([merged_footdata['footprint_idx'], merged_footdata['nodes_idx']])).to(device)
 
     ### now I'm going to define the X data for the nodes and the buildings
-    nodedata_marginal_n = nodedata_n.loc[:, ~nodedata_n.columns.isin(['pano_id', 'pano_date', 'geometry', 'id'])]
+    # nodedata_marginal_n = nodedata_n.loc[:, ~nodedata_n.columns.isin(['pano_id', 'pano_date', 'geometry', 'id'])]
 
-    # nodedata_marginal_n = nodedata_n.loc[:,[
-    #     "road_area",
-    #     "building_area",
-    #     "sky_area",
-    #     "vegetation_area",
-    #     "car_count",
-    #     "person_count"
-    # ]]
+    if partition_terms:
+        nodedata_marginal_n = nodedata_n.loc[:,partition_terms]
+    else:
+        nodedata_marginal_n = nodedata_n
+
     x_nodes = torch.tensor(nodedata_marginal_n.to_numpy().astype("float32")).to(device)
 
     unique_buildings_n["geometry"] = unique_buildings_n["geometry_prior"]

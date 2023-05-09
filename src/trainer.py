@@ -25,10 +25,6 @@ def trainer(
     minimum_validationloss = math.inf
     state_dict = None
 
-    np.random.seed(1)
-    torch.manual_seed(1)
-    random.seed(0)
-
     for epoch in tqdm_notebook(range(config['epochs']), desc="Epoch", leave=False):
         loss = 0
         validation_loss = 0
