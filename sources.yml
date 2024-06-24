@@ -1,0 +1,19 @@
+creator: "Thomas Dougherty"
+date-updated: "Sat, Jan 14 2023"
+imagedata: $DATAROOT
+model:
+  config: "oneformer_convnext_large_bs16_90k.yaml"
+  weights: "250_16_convnext_l_oneformer_cityscapes_90k.pth"
+cities:
+  - name: "nyc"
+    energy: "energy-k.csv"
+    footprints: "footprints-k.geojson"
+    panoptic-data: "panoptic-data.csv"
+    panoptic-locations: "panoptic-data.geojson"
+    zone: "EPSG:32618"
+  - name: "san-fransisco"
+    energy: "energy-k.csv"
+    footprints: "footprints-k.geojson"
+    panoptic-data: "panoptic-data.csv"
+    panoptic-locations: "panoptic-data.geojson"
+    zone: "EPSG:32610"

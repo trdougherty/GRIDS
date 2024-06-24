@@ -58,7 +58,7 @@ class FullGAT(torch.nn.Module):
         for conv in self.convs:
             x_dict = conv(x_dict, edge_index_dict)
             x_dict = {key: x.relu() for key, x in x_dict.items()}
-        return linear_projection + self.mlp(x_dict['footprint'])
+        return self.mlp(x_dict['footprint']) #+ linear_projection 
 #         return x['pano']
 
 class CustomGAT(torch.nn.Module):
@@ -113,10 +113,10 @@ class CustomGAT(torch.nn.Module):
 
         self.mlp = nn.Sequential(
             nn.Linear(out_channels * heads, hidden_channels),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p= dropout),
             nn.ReLU(),
             nn.Linear(hidden_channels, hidden_channels),
-            nn.Dropout(p=0.3),
+            nn.Dropout(p= dropout),
             nn.ReLU(),
             nn.Linear(hidden_channels, 1)
         )
@@ -143,7 +143,7 @@ class CustomGAT(torch.nn.Module):
 #         }, aggr='mean').to(device)
 
         footprint_predictions = self.conv_translate(x, edge_index)['footprint']
-        return linear_projection + self.mlp(footprint_predictions)
+        return self.mlp(footprint_predictions) # + linear_projection
 #         return x['pano']
 
 # model = to_hetero(model, data.metadata(), aggr='mean').to(device)
@@ -183,4 +183,4 @@ class NullModel(torch.nn.Module):
         augmentation = self.layer_compute(augmentation)
         augmentation = self.mlp_close(augmentation)
 
-        return linear_prediction + augmentation
+        return augmentation #+ linear_prediction

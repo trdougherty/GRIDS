@@ -1,8 +1,13 @@
 # Data files which are too big whomp whomp
+*.jpg
+*.png
 data/nyc/energy/*
 data/nyc/footprints/*
 data/nyc/weather/*
 data/nyc/photos/*
+
+data/*/images/
+data/*/panodata/
 
 # all of the weights and biases files
 src/wandb/*
